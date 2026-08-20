@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ site }} | FunnelAnalytics</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="site-header">
+  <div class="brand">◆ Funnel<span>Analytics</span></div>
+  <div class="site-switch">
+    <a class="{% if site=='Funnel Analysis' %}selected{% endif %}" href="/">Funnel Analysis</a>
+    <a class="{% if site=='Live Prediction' %}selected{% endif %}" href="/live">Live Prediction</a>
+  </div>
+  <div class="online"><i></i> System Online</div>
+</header>
+
+{% if site == 'Funnel Analysis' %}
+<main class="container">
+  <div class="page-heading">
+    <div>
+      <div class="eyebrow">HISTORICAL ANALYTICS</div>
+      <h1>Funnel Analysis</h1>
+      <p>Analyze the 5,000-user journey dataset and identify where users drop off.</p>
+    </div>
+  </div>
+
+  <section class="cards">
+    <div class="card"><label>Total Users</label><strong>{{ "{:,}".format(total) }}</strong></div>
+    <div class="card"><label>Dropped-Off Users</label><strong class="red">{{ "{:,}".format(dropped) }}</strong></div>
+    <div class="card"><label>Users Not Dropped-Off</label><strong class="green">{{ "{:,}".format(not_dropped) }}</strong></div>
+    <div class="card"><label>Drop-Off Rate</label><strong>{{ "%.2f"|format(rate) }}%</strong></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>User Journey Funnel</h2><span>Historical users</span></div>
+    <div class="funnel">
+      {% for stage,value in [('Home',5000),('Sign Up',4121),('Browse',3374),('Product',2645),('Add to Cart',1885),('Checkout',1116),('Purchase',471)] %}
+      <div class="funnel-row">
+        <span>{{ stage }}</span>
+        <div><i style="width:{{ (value/5000)*100 }}%"></i></div>
+        <b>{{ "{:,}".format(value) }}</b>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="grid two">
+    <div class="panel">
+      <div class="panel-head"><h2>Historical Drop-Off</h2><span>5,000 records</span></div>
+      <div class="big-number">{{ "%.2f"|format(rate) }}%</div>
+      <p class="muted">{{ dropped }} users dropped off from the historical dataset.</p>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h2>Model Performance</h2><a href="/live">Open Live Prediction →</a></div>
+      {% set m=metrics or {} %}
+      <div class="mini-metrics">
+        <span>Accuracy <b>{{ "%.2f"|format(m.get('accuracy',0)*100) }}%</b></span>
+        <span>Precision <b>{{ "%.2f"|format(m.get('precision',0)*100) }}%</b></span>
+        <span>Recall <b>{{ "%.2f"|format(m.get('recall',0)*100) }}%</b></span>
+        <span>F1 <b>{{ "%.2f"|format(m.get('f1_score',0)*100) }}%</b></span>
+      </div>
+    </div>
+  </section>
+</main>
+
+{% else %}
+<main class="container live-page">
+  <div class="page-heading">
+    <div>
+      <div class="eyebrow">REAL-TIME USER MONITORING</div>
+      <h1>Live Prediction</h1>
+      <p>Create a live user journey and watch the drop-off prediction update in real time.</p>
+    </div>
+    <div class="live-badge"><i></i> LIVE</div>
+  </div>
+
+  <section class="panel start-panel">
+    <div class="panel-head"><h2>Start New User Journey</h2><span>Live session</span></div>
+    <div class="inputs">
+      <label>User ID<input id="userId" value="{{ next_user }}"></label>
+      <label>Age<input id="age" type="number" value="25" min="10" max="100"></label>
+      <label>Previous Visits<input id="previousVisits" type="number" value="0" min="0" max="100"></label>
+    </div>
+    <button class="primary" onclick="startJourney()">🚀 Start Journey</button>
+  </section>
+
+  <section id="journeyArea" class="hidden">
+    <div class="cards">
+      <div class="card"><label>Current Page</label><strong id="currentPage">Home</strong></div>
+      <div class="card"><label>Drop-Off Probability</label><strong id="probability">0.00%</strong></div>
+      <div class="card"><label>Risk Level</label><strong id="risk">LOW</strong></div>
+      <div class="card"><label>Pages Visited</label><strong id="pages">1</strong></div>
+    </div>
+
+    <section class="panel">
+      <div class="panel-head"><h2>User Journey</h2><span id="sessionInfo">0 sec · 0 clicks</span></div>
+      <div class="journey-buttons">
+        <button onclick="go('Home')">🏠 Home</button>
+        <button onclick="go('Sign Up')">📝 Sign Up</button>
+        <button onclick="go('Browse')">🔍 Browse</button>
+        <button onclick="go('Product')">📦 Product</button>
+        <button onclick="go('Add to Cart')">🛒 Add to Cart</button>
+        <button onclick="go('Checkout')">💳 Checkout</button>
+        <button onclick="go('Purchase')">✅ Purchase</button>
+        <button class="secondary" onclick="resetJourney()">🔄 Reset</button>
+      </div>
+    </section>
+
+    <section class="panel prediction">
+      <div class="panel-head"><h2>🔴 Live Drop-Off Prediction</h2><span>Updated on every action</span></div>
+      <div class="prediction-grid">
+        <div><small>Current Page</small><b id="predPage">Home</b></div>
+        <div><small>Probability</small><b id="predProbability">0.00%</b></div>
+        <div><small>Risk</small><b id="predRisk">LOW</b></div>
+      </div>
+      <div class="progress"><i id="riskBar"></i></div>
+      <div class="recommend" id="recommendation">🟢 Low-risk user. User appears engaged.</div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>📡 Live User Session Data</h2><span id="eventCount">0 events · auto refresh 2s</span></div>
+      <div id="liveTable" class="table-wrap"></div>
+    </section>
+  </section>
+</main>
+{% endif %}
+
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
