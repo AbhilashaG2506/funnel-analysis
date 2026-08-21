@@ -90,7 +90,9 @@ def load_live_events():
                 conn
             )
 
-    except Exception:
+    except Exception as e:
+
+        print("Database read error:", e)
 
         return pd.DataFrame()
 
@@ -212,7 +214,7 @@ def ensure_table():
         """)
 
         # -------------------------------------------------
-        # Check whether device column already exists
+        # Add device column if old database doesn't have it
         # -------------------------------------------------
 
         columns = [
@@ -277,7 +279,7 @@ def calculate_prediction(
 ):
 
     # -----------------------------------------------------
-    # Purchase means completed journey
+    # PURCHASE = COMPLETED JOURNEY
     # -----------------------------------------------------
 
     if (
@@ -290,7 +292,7 @@ def calculate_prediction(
         return 0.0, "LOW"
 
     # -----------------------------------------------------
-    # If model is unavailable
+    # MODEL NOT AVAILABLE
     # -----------------------------------------------------
 
     if model is None:
@@ -333,12 +335,14 @@ def calculate_prediction(
             )
         )
 
-    except Exception:
+    except Exception as e:
+
+        print("Prediction error:", e)
 
         probability = 0.0
 
     # -----------------------------------------------------
-    # Risk classification
+    # RISK LEVEL
     # -----------------------------------------------------
 
     if probability >= 0.70:
@@ -507,6 +511,8 @@ def historical():
 
 # =========================================================
 # LIVE EVENTS API
+#
+# IMPORTANT:
 # ONE ROW PER USER
 # =========================================================
 
@@ -516,7 +522,7 @@ def api_live():
     live_df = load_live_events()
 
     # -----------------------------------------------------
-    # No events
+    # No live events
     # -----------------------------------------------------
 
     if live_df.empty:
@@ -530,14 +536,33 @@ def api_live():
         })
 
     # -----------------------------------------------------
-    # IMPORTANT:
+    # Make sure timestamp is treated as datetime
+    # -----------------------------------------------------
+
+    live_df["timestamp"] = pd.to_datetime(
+        live_df["timestamp"],
+        errors="coerce"
+    )
+
+    # -----------------------------------------------------
+    # Sort newest event first
+    # -----------------------------------------------------
+
+    live_df = live_df.sort_values(
+        "timestamp",
+        ascending=False
+    )
+
+    # -----------------------------------------------------
+    # KEEP ONLY THE LATEST EVENT OF EACH USER
     #
-    # load_live_events() already sorts by:
+    # Example:
     #
-    # timestamp DESC
+    # U1001 -> Home
+    # U1001 -> Browse
+    # U1001 -> Product
     #
-    # Therefore the FIRST record for each user
-    # is their latest/current activity.
+    # Only Product remains.
     # -----------------------------------------------------
 
     live_df = live_df.drop_duplicates(
@@ -546,13 +571,24 @@ def api_live():
     )
 
     # -----------------------------------------------------
-    # Show maximum 50 current users
+    # Maximum 50 CURRENT USERS
     # -----------------------------------------------------
 
     live_df = live_df.head(50)
 
     # -----------------------------------------------------
-    # Convert to JSON records
+    # Convert timestamp back to text
+    # -----------------------------------------------------
+
+    live_df["timestamp"] = (
+        live_df["timestamp"]
+        .dt.strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+    )
+
+    # -----------------------------------------------------
+    # Convert to JSON
     # -----------------------------------------------------
 
     records = (
@@ -687,109 +723,111 @@ def api_event():
     )
 
     # -----------------------------------------------------
-    # PREDICTION
+    # GET CURRENT PAGE
     # -----------------------------------------------------
 
-    probability, risk = calculate_prediction(
-
-        int(
-            data.get(
-                "age",
-                25
-            )
-        ),
-
-        int(
-            data.get(
-                "pages_visited",
-                1
-            )
-        ),
-
-        int(
-            data.get(
-                "session_duration",
-                0
-            )
-        ),
-
-        int(
-            data.get(
-                "clicks",
-                0
-            )
-        ),
-
-        int(
-            data.get(
-                "previous_visits",
-                0
-            )
-        ),
-
+    current_page = str(
         data.get(
             "current_page",
             "Home"
         )
+    )
+
+    # -----------------------------------------------------
+    # GET USER INFORMATION
+    # -----------------------------------------------------
+
+    user_id = str(
+        data.get(
+            "user_id",
+            next_user_id()
+        )
+    )
+
+    age = int(
+        data.get(
+            "age",
+            25
+        )
+    )
+
+    pages_visited = int(
+        data.get(
+            "pages_visited",
+            1
+        )
+    )
+
+    session_duration = int(
+        data.get(
+            "session_duration",
+            0
+        )
+    )
+
+    clicks = int(
+        data.get(
+            "clicks",
+            0
+        )
+    )
+
+    previous_visits = int(
+        data.get(
+            "previous_visits",
+            0
+        )
+    )
+
+    # -----------------------------------------------------
+    # CALCULATE PREDICTION
+    # -----------------------------------------------------
+
+    probability, risk = calculate_prediction(
+
+        age,
+
+        pages_visited,
+
+        session_duration,
+
+        clicks,
+
+        previous_visits,
+
+        current_page
 
     )
 
     # -----------------------------------------------------
-    # USER EVENT
+    # CREATE USER EVENT
     # -----------------------------------------------------
 
     user = {
 
-        "user_id": str(
-            data.get(
-                "user_id",
-                next_user_id()
-            )
-        ),
+        "user_id":
+            user_id,
 
-        "current_page": str(
-            data.get(
-                "current_page",
-                "Home"
-            )
-        ),
+        "current_page":
+            current_page,
 
-        "age": int(
-            data.get(
-                "age",
-                25
-            )
-        ),
+        "age":
+            age,
 
-        "pages_visited": int(
-            data.get(
-                "pages_visited",
-                1
-            )
-        ),
+        "pages_visited":
+            pages_visited,
 
-        "session_duration": int(
-            data.get(
-                "session_duration",
-                0
-            )
-        ),
+        "session_duration":
+            session_duration,
 
-        "clicks": int(
-            data.get(
-                "clicks",
-                0
-            )
-        ),
+        "clicks":
+            clicks,
 
-        "previous_visits": int(
-            data.get(
-                "previous_visits",
-                0
-            )
-        ),
+        "previous_visits":
+            previous_visits,
 
-        "device": device,
+        "device":
+            device,
 
         "dropout_probability":
             probability,
@@ -802,22 +840,24 @@ def api_event():
     # -----------------------------------------------------
     # SAVE EVENT
     #
-    # Every event is still saved.
-    # The dashboard simply displays one latest row
-    # per user.
+    # ALL EVENTS are stored in SQLite.
+    #
+    # The /api/live endpoint decides what is displayed.
     # -----------------------------------------------------
 
     save_event(user)
 
     # -----------------------------------------------------
-    # RESPONSE
+    # RESPONSE TO SHOP EASY
     # -----------------------------------------------------
 
     return jsonify({
 
-        "ok": True,
+        "ok":
+            True,
 
-        "user": user,
+        "user":
+            user,
 
         "percentage":
             round(
