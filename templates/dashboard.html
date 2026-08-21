@@ -1,132 +1,1085 @@
 <!doctype html>
 <html lang="en">
+
 <head>
+
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<meta name="viewport"
+      content="width=device-width, initial-scale=1">
+
 <title>{{ site }} | FunnelAnalytics</title>
-<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+
+<link rel="stylesheet"
+      href="{{ url_for('static', filename='style.css') }}">
+
+<style>
+
+.live-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+}
+
+.live-table th {
+    text-align: left;
+    padding: 14px 12px;
+    color: #8fa8c7;
+    font-size: 13px;
+    border-bottom: 1px solid #20354d;
+}
+
+.live-table td {
+    padding: 14px 12px;
+    border-bottom: 1px solid #172b42;
+    color: #e8f0fa;
+    font-size: 14px;
+}
+
+.live-table tr:hover {
+    background: rgba(40, 100, 180, 0.08);
+}
+
+.risk-high {
+    color: #ff637d;
+    font-weight: 700;
+}
+
+.risk-medium {
+    color: #ffc857;
+    font-weight: 700;
+}
+
+.risk-low {
+    color: #48e28a;
+    font-weight: 700;
+}
+
+.device {
+    font-weight: 600;
+}
+
+.live-number {
+    font-size: 28px;
+    font-weight: 700;
+}
+
+.empty-message {
+    padding: 35px;
+    text-align: center;
+    color: #7f96b2;
+}
+
+.refresh-text {
+    color: #6f8baa;
+    font-size: 12px;
+}
+
+.active-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    background: #35e27d;
+    border-radius: 50%;
+    margin-right: 7px;
+    box-shadow: 0 0 10px #35e27d;
+}
+
+</style>
+
 </head>
+
+
 <body>
+
+
 <header class="site-header">
-  <div class="brand">◆ Funnel<span>Analytics</span></div>
-  <div class="site-switch">
-    <a class="{% if site=='Funnel Analysis' %}selected{% endif %}" href="/">Funnel Analysis</a>
-    <a class="{% if site=='Live Prediction' %}selected{% endif %}" href="/live">Live Prediction</a>
-  </div>
-  <div class="online"><i></i> System Online</div>
+
+    <div class="brand">
+        ◆ Funnel<span>Analytics</span>
+    </div>
+
+
+    <div class="site-switch">
+
+        <a
+            class="{% if site=='Funnel Analysis' %}selected{% endif %}"
+            href="/"
+        >
+            Funnel Analysis
+        </a>
+
+
+        <a
+            class="{% if site=='Live Prediction' %}selected{% endif %}"
+            href="/live"
+        >
+            Live Prediction
+        </a>
+
+    </div>
+
+
+    <div class="online">
+
+        <i></i>
+
+        System Online
+
+    </div>
+
 </header>
 
+
+
 {% if site == 'Funnel Analysis' %}
+
+
+<!-- =====================================================
+     HISTORICAL FUNNEL ANALYSIS
+===================================================== -->
+
 <main class="container">
-  <div class="page-heading">
-    <div>
-      <div class="eyebrow">HISTORICAL ANALYTICS</div>
-      <h1>Funnel Analysis</h1>
-      <p>Analyze the 5,000-user journey dataset and identify where users drop off.</p>
-    </div>
-  </div>
 
-  <section class="cards">
-    <div class="card"><label>Total Users</label><strong>{{ "{:,}".format(total) }}</strong></div>
-    <div class="card"><label>Dropped-Off Users</label><strong class="red">{{ "{:,}".format(dropped) }}</strong></div>
-    <div class="card"><label>Users Not Dropped-Off</label><strong class="green">{{ "{:,}".format(not_dropped) }}</strong></div>
-    <div class="card"><label>Drop-Off Rate</label><strong>{{ "%.2f"|format(rate) }}%</strong></div>
-  </section>
 
-  <section class="panel">
-    <div class="panel-head"><h2>User Journey Funnel</h2><span>Historical users</span></div>
-    <div class="funnel">
-      {% for stage,value in [('Home',5000),('Sign Up',4121),('Browse',3374),('Product',2645),('Add to Cart',1885),('Checkout',1116),('Purchase',471)] %}
-      <div class="funnel-row">
-        <span>{{ stage }}</span>
-        <div><i style="width:{{ (value/5000)*100 }}%"></i></div>
-        <b>{{ "{:,}".format(value) }}</b>
-      </div>
-      {% endfor %}
-    </div>
-  </section>
+    <div class="page-heading">
 
-  <section class="grid two">
-    <div class="panel">
-      <div class="panel-head"><h2>Historical Drop-Off</h2><span>5,000 records</span></div>
-      <div class="big-number">{{ "%.2f"|format(rate) }}%</div>
-      <p class="muted">{{ dropped }} users dropped off from the historical dataset.</p>
+        <div>
+
+            <div class="eyebrow">
+                HISTORICAL ANALYTICS
+            </div>
+
+
+            <h1>
+                Funnel Analysis
+            </h1>
+
+
+            <p>
+                Analyze the 5,000-user journey dataset
+                and identify where users drop off.
+            </p>
+
+        </div>
+
     </div>
-    <div class="panel">
-      <div class="panel-head"><h2>Model Performance</h2><a href="/live">Open Live Prediction →</a></div>
-      {% set m=metrics or {} %}
-      <div class="mini-metrics">
-        <span>Accuracy <b>{{ "%.2f"|format(m.get('accuracy',0)*100) }}%</b></span>
-        <span>Precision <b>{{ "%.2f"|format(m.get('precision',0)*100) }}%</b></span>
-        <span>Recall <b>{{ "%.2f"|format(m.get('recall',0)*100) }}%</b></span>
-        <span>F1 <b>{{ "%.2f"|format(m.get('f1_score',0)*100) }}%</b></span>
-      </div>
-    </div>
-  </section>
+
+
+
+    <section class="cards">
+
+
+        <div class="card">
+
+            <label>
+                Total Users
+            </label>
+
+            <strong>
+                {{ "{:,}".format(total) }}
+            </strong>
+
+        </div>
+
+
+
+        <div class="card">
+
+            <label>
+                Dropped-Off Users
+            </label>
+
+            <strong class="red">
+                {{ "{:,}".format(dropped) }}
+            </strong>
+
+        </div>
+
+
+
+        <div class="card">
+
+            <label>
+                Users Not Dropped-Off
+            </label>
+
+            <strong class="green">
+                {{ "{:,}".format(not_dropped) }}
+            </strong>
+
+        </div>
+
+
+
+        <div class="card">
+
+            <label>
+                Drop-Off Rate
+            </label>
+
+            <strong>
+                {{ "%.2f"|format(rate) }}%
+            </strong>
+
+        </div>
+
+
+    </section>
+
+
+
+    <section class="panel">
+
+
+        <div class="panel-head">
+
+            <h2>
+                User Journey Funnel
+            </h2>
+
+            <span>
+                Historical users
+            </span>
+
+        </div>
+
+
+
+        <div class="funnel">
+
+
+            {% for stage,value in [
+                ('Home',5000),
+                ('Sign Up',4121),
+                ('Browse',3374),
+                ('Product',2645),
+                ('Add to Cart',1885),
+                ('Checkout',1116),
+                ('Purchase',471)
+            ] %}
+
+
+            <div class="funnel-row">
+
+                <span>
+                    {{ stage }}
+                </span>
+
+
+                <div>
+
+                    <i
+                        style="width:{{ (value/5000)*100 }}%"
+                    ></i>
+
+                </div>
+
+
+                <b>
+                    {{ "{:,}".format(value) }}
+                </b>
+
+            </div>
+
+
+            {% endfor %}
+
+
+        </div>
+
+    </section>
+
+
+
+    <section class="grid two">
+
+
+        <div class="panel">
+
+
+            <div class="panel-head">
+
+                <h2>
+                    Historical Drop-Off
+                </h2>
+
+                <span>
+                    5,000 records
+                </span>
+
+            </div>
+
+
+            <div class="big-number">
+
+                {{ "%.2f"|format(rate) }}%
+
+            </div>
+
+
+            <p class="muted">
+
+                {{ dropped }}
+                users dropped off from the historical dataset.
+
+            </p>
+
+
+        </div>
+
+
+
+        <div class="panel">
+
+
+            <div class="panel-head">
+
+                <h2>
+                    Model Performance
+                </h2>
+
+
+                <a href="/live">
+                    Open Live Prediction →
+                </a>
+
+            </div>
+
+
+            {% set m=metrics or {} %}
+
+
+            <div class="mini-metrics">
+
+
+                <span>
+
+                    Accuracy
+
+                    <b>
+                        {{ "%.2f"|format(m.get('accuracy',0)*100) }}%
+                    </b>
+
+                </span>
+
+
+                <span>
+
+                    Precision
+
+                    <b>
+                        {{ "%.2f"|format(m.get('precision',0)*100) }}%
+                    </b>
+
+                </span>
+
+
+                <span>
+
+                    Recall
+
+                    <b>
+                        {{ "%.2f"|format(m.get('recall',0)*100) }}%
+                    </b>
+
+                </span>
+
+
+                <span>
+
+                    F1
+
+                    <b>
+                        {{ "%.2f"|format(m.get('f1_score',0)*100) }}%
+                    </b>
+
+                </span>
+
+
+            </div>
+
+
+        </div>
+
+
+    </section>
+
+
 </main>
+
+
 
 {% else %}
+
+
+
+<!-- =====================================================
+     LIVE PREDICTION
+===================================================== -->
+
 <main class="container live-page">
-  <div class="page-heading">
-    <div>
-      <div class="eyebrow">REAL-TIME USER MONITORING</div>
-      <h1>Live Prediction</h1>
-      <p>Create a live user journey and watch the drop-off prediction update in real time.</p>
-    </div>
-    <div class="live-badge"><i></i> LIVE</div>
-  </div>
 
-  <section class="panel start-panel">
-    <div class="panel-head"><h2>Start New User Journey</h2><span>Live session</span></div>
-    <div class="inputs">
-      <label>User ID<input id="userId" value="{{ next_user }}"></label>
-      <label>Age<input id="age" type="number" value="25" min="10" max="100"></label>
-      <label>Previous Visits<input id="previousVisits" type="number" value="0" min="0" max="100"></label>
-    </div>
-    <button class="primary" onclick="startJourney()">🚀 Start Journey</button>
-  </section>
 
-  <section id="journeyArea" class="hidden">
-    <div class="cards">
-      <div class="card"><label>Current Page</label><strong id="currentPage">Home</strong></div>
-      <div class="card"><label>Drop-Off Probability</label><strong id="probability">0.00%</strong></div>
-      <div class="card"><label>Risk Level</label><strong id="risk">LOW</strong></div>
-      <div class="card"><label>Pages Visited</label><strong id="pages">1</strong></div>
+    <div class="page-heading">
+
+
+        <div>
+
+
+            <div class="eyebrow">
+                REAL-TIME USER MONITORING
+            </div>
+
+
+            <h1>
+                Live Prediction
+            </h1>
+
+
+            <p>
+                Monitor ShopEasy users and predict
+                their drop-off risk in real time.
+            </p>
+
+
+        </div>
+
+
+        <div class="live-badge">
+
+            <i></i>
+
+            LIVE
+
+        </div>
+
+
     </div>
+
+
+
+    <!-- =================================================
+         LIVE SUMMARY
+    ================================================= -->
+
+    <section class="cards">
+
+
+        <div class="card">
+
+            <label>
+                Live Events
+            </label>
+
+            <strong
+                id="totalEvents"
+                class="live-number"
+            >
+                0
+            </strong>
+
+        </div>
+
+
+
+        <div class="card">
+
+            <label>
+                Active Users
+            </label>
+
+            <strong
+                id="activeUsers"
+                class="live-number"
+            >
+                0
+            </strong>
+
+        </div>
+
+
+
+        <div class="card">
+
+            <label>
+                High Risk Users
+            </label>
+
+            <strong
+                id="highRisk"
+                class="red live-number"
+            >
+                0
+            </strong>
+
+        </div>
+
+
+
+        <div class="card">
+
+            <label>
+                Last Update
+            </label>
+
+            <strong
+                id="lastUpdate"
+            >
+                Waiting...
+            </strong>
+
+        </div>
+
+
+    </section>
+
+
+
+    <!-- =================================================
+         LIVE USER ACTIVITY
+    ================================================= -->
 
     <section class="panel">
-      <div class="panel-head"><h2>User Journey</h2><span id="sessionInfo">0 sec · 0 clicks</span></div>
-      <div class="journey-buttons">
-        <button onclick="go('Home')">🏠 Home</button>
-        <button onclick="go('Sign Up')">📝 Sign Up</button>
-        <button onclick="go('Browse')">🔍 Browse</button>
-        <button onclick="go('Product')">📦 Product</button>
-        <button onclick="go('Add to Cart')">🛒 Add to Cart</button>
-        <button onclick="go('Checkout')">💳 Checkout</button>
-        <button onclick="go('Purchase')">✅ Purchase</button>
-        <button class="secondary" onclick="resetJourney()">🔄 Reset</button>
-      </div>
+
+
+        <div class="panel-head">
+
+
+            <h2>
+                📡 Live ShopEasy User Activity
+            </h2>
+
+
+            <span class="refresh-text">
+
+                <span class="active-dot"></span>
+
+                Automatically updating
+
+            </span>
+
+
+        </div>
+
+
+
+        <div
+            id="liveTable"
+            class="table-wrap"
+        >
+
+            <div class="empty-message">
+
+                Waiting for ShopEasy user activity...
+
+                <br><br>
+
+                When a user visits or interacts with
+                ShopEasy, their activity will appear here.
+
+            </div>
+
+        </div>
+
+
     </section>
 
-    <section class="panel prediction">
-      <div class="panel-head"><h2>🔴 Live Drop-Off Prediction</h2><span>Updated on every action</span></div>
-      <div class="prediction-grid">
-        <div><small>Current Page</small><b id="predPage">Home</b></div>
-        <div><small>Probability</small><b id="predProbability">0.00%</b></div>
-        <div><small>Risk</small><b id="predRisk">LOW</b></div>
-      </div>
-      <div class="progress"><i id="riskBar"></i></div>
-      <div class="recommend" id="recommendation">🟢 Low-risk user. User appears engaged.</div>
-    </section>
 
-    <section class="panel">
-      <div class="panel-head"><h2>📡 Live User Session Data</h2><span id="eventCount">0 events · auto refresh 2s</span></div>
-      <div id="liveTable" class="table-wrap"></div>
-    </section>
-  </section>
+
 </main>
+
+
 {% endif %}
 
-<script src="{{ url_for('static', filename='app.js') }}"></script>
+
+
+<!-- =====================================================
+     LIVE DATA JAVASCRIPT
+===================================================== -->
+
+<script>
+
+
+/*
+=========================================================
+LIVE PREDICTION DASHBOARD
+
+This page DOES NOT create a user journey.
+
+ShopEasy sends user activity to:
+
+/api/event
+
+This dashboard reads that information from:
+
+/api/live
+=========================================================
+*/
+
+
+async function loadLiveData() {
+
+
+    try {
+
+
+        const response = await fetch(
+            "/api/live",
+            {
+                cache: "no-store"
+            }
+        );
+
+
+        if (!response.ok) {
+
+            throw new Error(
+                "Unable to load live data"
+            );
+
+        }
+
+
+        const data = await response.json();
+
+
+        const events =
+            data.events || [];
+
+
+        /*
+        -----------------------------------------------
+        SUMMARY
+        -----------------------------------------------
+        */
+
+
+        document.getElementById(
+            "totalEvents"
+        ).textContent =
+            data.count || events.length;
+
+
+        /*
+        -----------------------------------------------
+        UNIQUE USERS
+        -----------------------------------------------
+        */
+
+
+        const users =
+            new Set(
+                events.map(
+                    event => event.user_id
+                )
+            );
+
+
+        document.getElementById(
+            "activeUsers"
+        ).textContent =
+            users.size;
+
+
+        /*
+        -----------------------------------------------
+        HIGH RISK USERS
+        -----------------------------------------------
+        */
+
+
+        const highRiskUsers =
+            events.filter(
+                event =>
+                    String(
+                        event.risk || ""
+                    ).toUpperCase() === "HIGH"
+            );
+
+
+        const uniqueHighRisk =
+            new Set(
+                highRiskUsers.map(
+                    event => event.user_id
+                )
+            );
+
+
+        document.getElementById(
+            "highRisk"
+        ).textContent =
+            uniqueHighRisk.size;
+
+
+        /*
+        -----------------------------------------------
+        LAST UPDATE
+        -----------------------------------------------
+        */
+
+
+        document.getElementById(
+            "lastUpdate"
+        ).textContent =
+            new Date().toLocaleTimeString();
+
+
+        /*
+        -----------------------------------------------
+        TABLE
+        -----------------------------------------------
+        */
+
+
+        const tableContainer =
+            document.getElementById(
+                "liveTable"
+            );
+
+
+        if (events.length === 0) {
+
+
+            tableContainer.innerHTML = `
+
+                <div class="empty-message">
+
+                    <span class="active-dot"></span>
+
+                    Waiting for ShopEasy user activity...
+
+                    <br><br>
+
+                    Open ShopEasy in another tab
+                    and start browsing.
+
+                </div>
+
+            `;
+
+
+            return;
+
+        }
+
+
+
+        let html = `
+
+            <table class="live-table">
+
+                <thead>
+
+                    <tr>
+
+                        <th>
+                            User ID
+                        </th>
+
+                        <th>
+                            Current Page
+                        </th>
+
+                        <th>
+                            Clicks
+                        </th>
+
+                        <th>
+                            Pages Visited
+                        </th>
+
+                        <th>
+                            Device
+                        </th>
+
+                        <th>
+                            Session Time
+                        </th>
+
+                        <th>
+                            Drop-Off Prediction
+                        </th>
+
+                        <th>
+                            Risk
+                        </th>
+
+                        <th>
+                            Time
+                        </th>
+
+                    </tr>
+
+                </thead>
+
+                <tbody>
+        `;
+
+
+
+        events.forEach(
+            event => {
+
+
+                const probability =
+                    Number(
+                        event.dropout_probability || 0
+                    ) * 100;
+
+
+                const percentage =
+                    probability.toFixed(2);
+
+
+                const risk =
+                    String(
+                        event.risk || "LOW"
+                    ).toUpperCase();
+
+
+                let riskClass =
+                    "risk-low";
+
+
+                if (risk === "HIGH") {
+
+                    riskClass =
+                        "risk-high";
+
+                }
+
+                else if (risk === "MEDIUM") {
+
+                    riskClass =
+                        "risk-medium";
+
+                }
+
+
+                const timestamp =
+                    event.timestamp || "-";
+
+
+                html += `
+
+                    <tr>
+
+                        <td>
+                            <strong>
+                                ${escapeHTML(
+                                    event.user_id || "-"
+                                )}
+                            </strong>
+                        </td>
+
+
+                        <td>
+                            ${escapeHTML(
+                                event.current_page || "-"
+                            )}
+                        </td>
+
+
+                        <td>
+                            ${event.clicks ?? 0}
+                        </td>
+
+
+                        <td>
+                            ${event.pages_visited ?? 0}
+                        </td>
+
+
+                        <td class="device">
+
+                            ${deviceIcon(
+                                event.device
+                            )}
+
+                            ${escapeHTML(
+                                event.device || "Unknown"
+                            )}
+
+                        </td>
+
+
+                        <td>
+                            ${event.session_duration ?? 0}
+                            sec
+                        </td>
+
+
+                        <td>
+
+                            <strong>
+                                ${percentage}%
+                            </strong>
+
+                        </td>
+
+
+                        <td class="${riskClass}">
+
+                            ${risk}
+
+                        </td>
+
+
+                        <td>
+                            ${timestamp}
+                        </td>
+
+                    </tr>
+
+                `;
+
+            }
+        );
+
+
+        html += `
+
+                </tbody>
+
+            </table>
+
+        `;
+
+
+        tableContainer.innerHTML =
+            html;
+
+
+    }
+
+    catch (error) {
+
+
+        console.error(
+            "Live data error:",
+            error
+        );
+
+
+        document.getElementById(
+            "liveTable"
+        ).innerHTML = `
+
+            <div class="empty-message">
+
+                ⚠️ Unable to load live data.
+
+                <br><br>
+
+                Please check that the
+                FunnelAnalytics server is running.
+
+            </div>
+
+        `;
+
+    }
+
+}
+
+
+
+/*
+=========================================================
+DEVICE ICON
+=========================================================
+*/
+
+
+function deviceIcon(device) {
+
+
+    const value =
+        String(
+            device || ""
+        ).toLowerCase();
+
+
+    if (value.includes("mobile")) {
+
+        return "📱";
+
+    }
+
+
+    if (value.includes("tablet")) {
+
+        return "📱";
+
+    }
+
+
+    return "💻";
+
+}
+
+
+
+/*
+=========================================================
+HTML SAFETY
+=========================================================
+*/
+
+
+function escapeHTML(value) {
+
+
+    return String(value)
+        .replace(
+            /&/g,
+            "&amp;"
+        )
+        .replace(
+            /</g,
+            "&lt;"
+        )
+        .replace(
+            />/g,
+            "&gt;"
+        )
+        .replace(
+            /"/g,
+            "&quot;"
+        )
+        .replace(
+            /'/g,
+            "&#039;"
+        );
+
+}
+
+
+
+/*
+=========================================================
+START LIVE REFRESH
+=========================================================
+*/
+
+
+{% if site == 'Live Prediction' %}
+
+loadLiveData();
+
+
+setInterval(
+    loadLiveData,
+    2000
+);
+
+{% endif %}
+
+
+</script>
+
+
 </body>
+
 </html>
