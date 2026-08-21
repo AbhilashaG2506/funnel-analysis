@@ -38,15 +38,15 @@ model = joblib.load(MODEL_FILE) if MODEL_FILE.exists() else None
 
 # =========================================================
 # CORS
-# Allows the ShopEasy GitHub Pages website to send
-# user activity to this Render backend.
 # =========================================================
 
 @app.after_request
 def add_cors_headers(response):
+
     response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+
     return response
 
 
@@ -55,6 +55,7 @@ def add_cors_headers(response):
 # =========================================================
 
 def load_data():
+
     return (
         pd.read_csv(DATA_FILE)
         if DATA_FILE.exists()
@@ -63,6 +64,7 @@ def load_data():
 
 
 def load_metrics():
+
     return (
         joblib.load(METRICS_FILE)
         if METRICS_FILE.exists()
@@ -71,16 +73,25 @@ def load_metrics():
 
 
 def load_live_events():
+
     if not DB_FILE.exists():
         return pd.DataFrame()
 
     try:
+
         with sqlite3.connect(DB_FILE) as conn:
+
             return pd.read_sql_query(
-                "SELECT * FROM user_events ORDER BY timestamp DESC",
+                """
+                SELECT *
+                FROM user_events
+                ORDER BY timestamp DESC
+                """,
                 conn
             )
+
     except Exception:
+
         return pd.DataFrame()
 
 
@@ -91,6 +102,7 @@ def load_live_events():
 def stats(df):
 
     if df.empty:
+
         return 0, 0, 0, 0.0
 
     total = len(df)
@@ -106,9 +118,18 @@ def stats(df):
 
     not_dropped = total - dropped
 
-    rate = dropped / total * 100 if total else 0
+    rate = (
+        dropped / total * 100
+        if total
+        else 0
+    )
 
-    return total, dropped, not_dropped, rate
+    return (
+        total,
+        dropped,
+        not_dropped,
+        rate
+    )
 
 
 # =========================================================
@@ -119,7 +140,11 @@ def next_user_id():
 
     live = load_live_events()
 
-    if live.empty or "user_id" not in live.columns:
+    if (
+        live.empty
+        or "user_id" not in live.columns
+    ):
+
         return "U1001"
 
     nums = []
@@ -129,9 +154,13 @@ def next_user_id():
         if value.startswith("U"):
 
             try:
-                nums.append(int(value[1:]))
+
+                nums.append(
+                    int(value[1:])
+                )
 
             except ValueError:
+
                 pass
 
     return (
@@ -183,9 +212,7 @@ def ensure_table():
         """)
 
         # -------------------------------------------------
-        # IMPORTANT:
-        # If your old database already exists without the
-        # device column, add it automatically.
+        # Check whether device column already exists
         # -------------------------------------------------
 
         columns = [
@@ -198,7 +225,10 @@ def ensure_table():
         if "device" not in columns:
 
             conn.execute(
-                "ALTER TABLE user_events ADD COLUMN device TEXT"
+                """
+                ALTER TABLE user_events
+                ADD COLUMN device TEXT
+                """
             )
 
         conn.commit()
@@ -215,7 +245,10 @@ def detect_device():
         ""
     ).lower()
 
-    if "ipad" in user_agent or "tablet" in user_agent:
+    if (
+        "ipad" in user_agent
+        or "tablet" in user_agent
+    ):
 
         return "Tablet"
 
@@ -243,12 +276,22 @@ def calculate_prediction(
     page
 ):
 
-    # A completed purchase means the user
-    # successfully completed the journey.
+    # -----------------------------------------------------
+    # Purchase means completed journey
+    # -----------------------------------------------------
 
-    if str(page).strip().lower() == "purchase":
+    if (
+        str(page)
+        .strip()
+        .lower()
+        == "purchase"
+    ):
 
         return 0.0, "LOW"
+
+    # -----------------------------------------------------
+    # If model is unavailable
+    # -----------------------------------------------------
 
     if model is None:
 
@@ -276,30 +319,44 @@ def calculate_prediction(
             )[0][1]
         )
 
-        if not math.isfinite(probability):
+        if not math.isfinite(
+            probability
+        ):
 
             probability = 0.0
 
         probability = max(
             0.0,
-            min(probability, 1.0)
+            min(
+                probability,
+                1.0
+            )
         )
 
     except Exception:
 
         probability = 0.0
 
-    risk = (
-        "HIGH"
-        if probability >= 0.70
-        else
-        "MEDIUM"
-        if probability >= 0.40
-        else
-        "LOW"
-    )
+    # -----------------------------------------------------
+    # Risk classification
+    # -----------------------------------------------------
 
-    return probability, risk
+    if probability >= 0.70:
+
+        risk = "HIGH"
+
+    elif probability >= 0.40:
+
+        risk = "MEDIUM"
+
+    else:
+
+        risk = "LOW"
+
+    return (
+        probability,
+        risk
+    )
 
 
 # =========================================================
@@ -368,7 +425,12 @@ def funnel():
 
     df = load_data()
 
-    total, dropped, not_dropped, rate = stats(df)
+    (
+        total,
+        dropped,
+        not_dropped,
+        rate
+    ) = stats(df)
 
     return render_template(
 
@@ -420,7 +482,12 @@ def historical():
 
     df = load_data()
 
-    total, dropped, not_dropped, rate = stats(df)
+    (
+        total,
+        dropped,
+        not_dropped,
+        rate
+    ) = stats(df)
 
     return jsonify({
 
@@ -430,13 +497,17 @@ def historical():
 
         "not_dropped": not_dropped,
 
-        "dropoff_rate": round(rate, 2)
+        "dropoff_rate": round(
+            rate,
+            2
+        )
 
     })
 
 
 # =========================================================
 # LIVE EVENTS API
+# ONE ROW PER USER
 # =========================================================
 
 @app.route("/api/live")
@@ -444,20 +515,59 @@ def api_live():
 
     live_df = load_live_events()
 
+    # -----------------------------------------------------
+    # No events
+    # -----------------------------------------------------
+
+    if live_df.empty:
+
+        return jsonify({
+
+            "events": [],
+
+            "count": 0
+
+        })
+
+    # -----------------------------------------------------
+    # IMPORTANT:
+    #
+    # load_live_events() already sorts by:
+    #
+    # timestamp DESC
+    #
+    # Therefore the FIRST record for each user
+    # is their latest/current activity.
+    # -----------------------------------------------------
+
+    live_df = live_df.drop_duplicates(
+        subset=["user_id"],
+        keep="first"
+    )
+
+    # -----------------------------------------------------
+    # Show maximum 50 current users
+    # -----------------------------------------------------
+
+    live_df = live_df.head(50)
+
+    # -----------------------------------------------------
+    # Convert to JSON records
+    # -----------------------------------------------------
+
     records = (
         live_df
-        .head(50)
         .fillna("")
-        .to_dict(orient="records")
-        if not live_df.empty
-        else []
+        .to_dict(
+            orient="records"
+        )
     )
 
     return jsonify({
 
         "events": records,
 
-        "count": len(live_df)
+        "count": len(records)
 
     })
 
@@ -486,19 +596,46 @@ def api_next_user():
 )
 def api_predict():
 
-    data = request.get_json(force=True)
+    data = request.get_json(
+        force=True
+    )
 
     probability, risk = calculate_prediction(
 
-        int(data.get("age", 25)),
+        int(
+            data.get(
+                "age",
+                25
+            )
+        ),
 
-        int(data.get("pages_visited", 1)),
+        int(
+            data.get(
+                "pages_visited",
+                1
+            )
+        ),
 
-        int(data.get("session_duration", 0)),
+        int(
+            data.get(
+                "session_duration",
+                0
+            )
+        ),
 
-        int(data.get("clicks", 0)),
+        int(
+            data.get(
+                "clicks",
+                0
+            )
+        ),
 
-        int(data.get("previous_visits", 0)),
+        int(
+            data.get(
+                "previous_visits",
+                0
+            )
+        ),
 
         data.get(
             "current_page",
@@ -509,14 +646,17 @@ def api_predict():
 
     return jsonify({
 
-        "probability": probability,
+        "probability":
+            probability,
 
-        "percentage": round(
-            probability * 100,
-            2
-        ),
+        "percentage":
+            round(
+                probability * 100,
+                2
+            ),
 
-        "risk": risk
+        "risk":
+            risk
 
     })
 
@@ -536,7 +676,7 @@ def api_event():
     )
 
     # -----------------------------------------------------
-    # Detect the device automatically from the browser.
+    # DEVICE
     # -----------------------------------------------------
 
     device = str(
@@ -547,12 +687,17 @@ def api_event():
     )
 
     # -----------------------------------------------------
-    # Calculate prediction.
+    # PREDICTION
     # -----------------------------------------------------
 
     probability, risk = calculate_prediction(
 
-        int(data.get("age", 25)),
+        int(
+            data.get(
+                "age",
+                25
+            )
+        ),
 
         int(
             data.get(
@@ -590,7 +735,7 @@ def api_event():
     )
 
     # -----------------------------------------------------
-    # Create user event.
+    # USER EVENT
     # -----------------------------------------------------
 
     user = {
@@ -646,24 +791,26 @@ def api_event():
 
         "device": device,
 
-        "dropout_probability": probability,
+        "dropout_probability":
+            probability,
 
-        "risk": risk
+        "risk":
+            risk
 
     }
 
     # -----------------------------------------------------
-    # Save event in SQLite.
+    # SAVE EVENT
+    #
+    # Every event is still saved.
+    # The dashboard simply displays one latest row
+    # per user.
     # -----------------------------------------------------
 
     save_event(user)
 
     # -----------------------------------------------------
-    # Return result to ShopEasy.
-    #
-    # IMPORTANT:
-    # ShopEasy does not have to display this response.
-    # The prediction is for your analytics dashboard.
+    # RESPONSE
     # -----------------------------------------------------
 
     return jsonify({
@@ -672,10 +819,11 @@ def api_event():
 
         "user": user,
 
-        "percentage": round(
-            probability * 100,
-            2
-        )
+        "percentage":
+            round(
+                probability * 100,
+                2
+            )
 
     })
 
