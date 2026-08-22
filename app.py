@@ -1,19 +1,43 @@
 from flask import Flask, render_template, jsonify, request
 import pandas as pd
-import sqlite3
+import mysql.connector
 import joblib
 import math
 from pathlib import Path
 from datetime import datetime
 
+
 app = Flask(__name__)
 
 BASE = Path(__file__).resolve().parent
 
+
+# =========================================================
+# FILE PATHS
+# =========================================================
+
 DATA_FILE = BASE / "data" / "user_journey_data.csv"
-DB_FILE = BASE / "data" / "user_journey.db"
 MODEL_FILE = BASE / "models" / "dropout_model.pkl"
 METRICS_FILE = BASE / "models" / "model_metrics.pkl"
+
+
+# =========================================================
+# MYSQL CONNECTION
+# =========================================================
+
+def get_mysql_connection():
+
+    return mysql.connector.connect(
+        host="localhost",
+        user="root",
+        password="Abhilasha@123",
+        database="funnel_analysis"
+    )
+
+
+# =========================================================
+# ML FEATURES
+# =========================================================
 
 FEATURES = [
     "age",
@@ -22,6 +46,11 @@ FEATURES = [
     "clicks",
     "previous_visits"
 ]
+
+
+# =========================================================
+# FUNNEL STAGES
+# =========================================================
 
 STAGES = [
     "Home",
@@ -33,7 +62,16 @@ STAGES = [
     "Purchase"
 ]
 
-model = joblib.load(MODEL_FILE) if MODEL_FILE.exists() else None
+
+# =========================================================
+# LOAD MACHINE LEARNING MODEL
+# =========================================================
+
+model = (
+    joblib.load(MODEL_FILE)
+    if MODEL_FILE.exists()
+    else None
+)
 
 
 # =========================================================
@@ -51,50 +89,184 @@ def add_cors_headers(response):
 
 
 # =========================================================
-# DATA
+# HISTORICAL DATA
 # =========================================================
 
 def load_data():
 
-    return (
-        pd.read_csv(DATA_FILE)
-        if DATA_FILE.exists()
-        else pd.DataFrame()
-    )
+    if not DATA_FILE.exists():
 
-
-def load_metrics():
-
-    return (
-        joblib.load(METRICS_FILE)
-        if METRICS_FILE.exists()
-        else {}
-    )
-
-
-def load_live_events():
-
-    if not DB_FILE.exists():
         return pd.DataFrame()
 
     try:
 
-        with sqlite3.connect(DB_FILE) as conn:
-
-            return pd.read_sql_query(
-                """
-                SELECT *
-                FROM user_events
-                ORDER BY timestamp DESC
-                """,
-                conn
-            )
+        return pd.read_csv(DATA_FILE)
 
     except Exception as e:
 
-        print("Database read error:", e)
+        print("CSV read error:", e)
 
         return pd.DataFrame()
+
+
+# =========================================================
+# MODEL METRICS
+# =========================================================
+
+def load_metrics():
+
+    if not METRICS_FILE.exists():
+
+        return {}
+
+    try:
+
+        return joblib.load(METRICS_FILE)
+
+    except Exception as e:
+
+        print("Metrics read error:", e)
+
+        return {}
+
+
+# =========================================================
+# CREATE MYSQL LIVE TABLE
+#
+# SQLite is completely removed.
+#
+# MySQL database:
+#
+# funnel_analysis
+#       |
+#       |---- funnel_data
+#       |
+#       |---- live_events
+#
+# =========================================================
+
+def ensure_mysql_tables():
+
+    connection = None
+    cursor = None
+
+    try:
+
+        connection = get_mysql_connection()
+
+        cursor = connection.cursor()
+
+        # -------------------------------------------------
+        # LIVE EVENTS TABLE
+        # -------------------------------------------------
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS live_events (
+
+                id INT AUTO_INCREMENT PRIMARY KEY,
+
+                timestamp DATETIME NOT NULL,
+
+                user_id INT NOT NULL,
+
+                current_page VARCHAR(100),
+
+                age INT,
+
+                pages_visited INT,
+
+                session_duration INT,
+
+                clicks INT,
+
+                previous_visits INT,
+
+                device VARCHAR(50),
+
+                dropout_probability DECIMAL(10,8),
+
+                risk VARCHAR(20)
+
+            )
+        """)
+
+        connection.commit()
+
+        print("MySQL live_events table ready.")
+
+    except Exception as e:
+
+        print("MySQL table error:", e)
+
+    finally:
+
+        if cursor is not None:
+
+            cursor.close()
+
+        if connection is not None:
+
+            connection.close()
+
+
+# =========================================================
+# LOAD LIVE EVENTS FROM MYSQL
+# =========================================================
+
+def load_live_events():
+
+    connection = None
+    cursor = None
+
+    try:
+
+        connection = get_mysql_connection()
+
+        cursor = connection.cursor(dictionary=True)
+
+        cursor.execute("""
+            SELECT
+                id,
+                timestamp,
+                user_id,
+                current_page,
+                age,
+                pages_visited,
+                session_duration,
+                clicks,
+                previous_visits,
+                device,
+                dropout_probability,
+                risk
+            FROM live_events
+            ORDER BY timestamp DESC, id DESC
+        """)
+
+        rows = cursor.fetchall()
+
+        if not rows:
+
+            return pd.DataFrame()
+
+        df = pd.DataFrame(rows)
+
+        return df
+
+    except Exception as e:
+
+        print("MySQL live event read error:", e)
+
+        return pd.DataFrame()
+
+    finally:
+
+        if cursor is not None:
+
+            cursor.close()
+
+        if connection is not None:
+
+            connection.close()
 
 
 # =========================================================
@@ -135,105 +307,92 @@ def stats(df):
 
 
 # =========================================================
-# USER ID
+# NEXT USER ID
+#
+# Checks both:
+#
+# 1. funnel_data
+# 2. live_events
+#
+# Then generates:
+#
+# U1001
+# U1002
+# U1003
+#
 # =========================================================
 
 def next_user_id():
 
-    live = load_live_events()
+    connection = None
+    cursor = None
 
-    if (
-        live.empty
-        or "user_id" not in live.columns
-    ):
+    try:
+
+        connection = get_mysql_connection()
+
+        cursor = connection.cursor()
+
+        # -------------------------------------------------
+        # Highest user ID in funnel_data
+        # -------------------------------------------------
+
+        cursor.execute("""
+            SELECT COALESCE(MAX(user_id), 1000)
+            FROM funnel_data
+        """)
+
+        funnel_result = cursor.fetchone()
+
+        funnel_max = (
+            int(funnel_result[0])
+            if funnel_result and funnel_result[0] is not None
+            else 1000
+        )
+
+        # -------------------------------------------------
+        # Highest user ID in live_events
+        # -------------------------------------------------
+
+        cursor.execute("""
+            SELECT COALESCE(MAX(user_id), 1000)
+            FROM live_events
+        """)
+
+        live_result = cursor.fetchone()
+
+        live_max = (
+            int(live_result[0])
+            if live_result and live_result[0] is not None
+            else 1000
+        )
+
+        # -------------------------------------------------
+        # Select highest ID
+        # -------------------------------------------------
+
+        maximum = max(
+            funnel_max,
+            live_max
+        )
+
+        return f"U{maximum + 1}"
+
+    except Exception as e:
+
+        print("Next user ID error:", e)
 
         return "U1001"
 
-    nums = []
+    finally:
 
-    for value in live["user_id"].dropna().astype(str):
+        if cursor is not None:
 
-        if value.startswith("U"):
+            cursor.close()
 
-            try:
+        if connection is not None:
 
-                nums.append(
-                    int(value[1:])
-                )
-
-            except ValueError:
-
-                pass
-
-    return (
-        f"U{max(nums) + 1}"
-        if nums
-        else "U1001"
-    )
-
-
-# =========================================================
-# DATABASE
-# =========================================================
-
-def ensure_table():
-
-    DB_FILE.parent.mkdir(
-        parents=True,
-        exist_ok=True
-    )
-
-    with sqlite3.connect(DB_FILE) as conn:
-
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS user_events (
-
-                timestamp TEXT,
-
-                user_id TEXT,
-
-                current_page TEXT,
-
-                age INTEGER,
-
-                pages_visited INTEGER,
-
-                session_duration INTEGER,
-
-                clicks INTEGER,
-
-                previous_visits INTEGER,
-
-                device TEXT,
-
-                dropout_probability REAL,
-
-                risk TEXT
-
-            )
-        """)
-
-        # -------------------------------------------------
-        # Add device column if old database doesn't have it
-        # -------------------------------------------------
-
-        columns = [
-            row[1]
-            for row in conn.execute(
-                "PRAGMA table_info(user_events)"
-            ).fetchall()
-        ]
-
-        if "device" not in columns:
-
-            conn.execute(
-                """
-                ALTER TABLE user_events
-                ADD COLUMN device TEXT
-                """
-            )
-
-        conn.commit()
+            connection.close()
 
 
 # =========================================================
@@ -321,11 +480,19 @@ def calculate_prediction(
             )[0][1]
         )
 
+        # -------------------------------------------------
+        # Check valid number
+        # -------------------------------------------------
+
         if not math.isfinite(
             probability
         ):
 
             probability = 0.0
+
+        # -------------------------------------------------
+        # Keep between 0 and 1
+        # -------------------------------------------------
 
         probability = max(
             0.0,
@@ -337,7 +504,10 @@ def calculate_prediction(
 
     except Exception as e:
 
-        print("Prediction error:", e)
+        print(
+            "Prediction error:",
+            e
+        )
 
         probability = 0.0
 
@@ -364,17 +534,46 @@ def calculate_prediction(
 
 
 # =========================================================
-# SAVE EVENT
+# SAVE LIVE EVENT TO MYSQL
 # =========================================================
 
-def save_event(user):
+def save_live_event(user):
 
-    ensure_table()
+    connection = None
+    cursor = None
 
-    with sqlite3.connect(DB_FILE) as conn:
+    try:
 
-        conn.execute("""
-            INSERT INTO user_events
+        connection = get_mysql_connection()
+
+        cursor = connection.cursor()
+
+        # -------------------------------------------------
+        # Convert U1001 -> 1001
+        # -------------------------------------------------
+
+        raw_user_id = str(
+            user["user_id"]
+        )
+
+        if raw_user_id.startswith("U"):
+
+            mysql_user_id = int(
+                raw_user_id[1:]
+            )
+
+        else:
+
+            mysql_user_id = int(
+                raw_user_id
+            )
+
+        # -------------------------------------------------
+        # INSERT LIVE EVENT
+        # -------------------------------------------------
+
+        query = """
+            INSERT INTO live_events
             (
                 timestamp,
                 user_id,
@@ -388,14 +587,27 @@ def save_event(user):
                 dropout_probability,
                 risk
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
+            VALUES
+            (
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s
+            )
+        """
 
-            datetime.now().strftime(
-                "%Y-%m-%d %H:%M:%S"
-            ),
+        values = (
 
-            user["user_id"],
+            datetime.now(),
+
+            mysql_user_id,
 
             user["current_page"],
 
@@ -415,9 +627,273 @@ def save_event(user):
 
             user["risk"]
 
-        ))
+        )
 
-        conn.commit()
+        cursor.execute(
+            query,
+            values
+        )
+
+        connection.commit()
+
+        print(
+            "Live event saved to MySQL:",
+            mysql_user_id,
+            user["current_page"]
+        )
+
+    except Exception as e:
+
+        print(
+            "MySQL live event save error:",
+            e
+        )
+
+    finally:
+
+        if cursor is not None:
+
+            cursor.close()
+
+        if connection is not None:
+
+            connection.close()
+
+
+# =========================================================
+# SAVE SHOP EASY EVENT TO FUNNEL_DATA
+#
+# Existing MySQL table:
+#
+# funnel_analysis
+#       |
+#       └── funnel_data
+#
+# =========================================================
+
+def save_event_to_mysql(data, user):
+
+    connection = None
+    cursor = None
+
+    try:
+
+        connection = get_mysql_connection()
+
+        cursor = connection.cursor()
+
+        # -------------------------------------------------
+        # USER ID
+        #
+        # Website:
+        # U1001
+        #
+        # MySQL:
+        # 1001
+        # -------------------------------------------------
+
+        raw_user_id = str(
+            user["user_id"]
+        )
+
+        if raw_user_id.startswith("U"):
+
+            mysql_user_id = int(
+                raw_user_id[1:]
+            )
+
+        else:
+
+            mysql_user_id = int(
+                raw_user_id
+            )
+
+        # -------------------------------------------------
+        # CURRENT PAGE
+        # -------------------------------------------------
+
+        current_page = str(
+            user["current_page"]
+        ).strip()
+
+        # -------------------------------------------------
+        # TRAFFIC SOURCE
+        # -------------------------------------------------
+
+        traffic_source = str(
+            data.get(
+                "traffic_source",
+                "Direct"
+            )
+        )
+
+        # -------------------------------------------------
+        # LANDING PAGE
+        # -------------------------------------------------
+
+        landing_page = str(
+            data.get(
+                "landing_page",
+                "Home"
+            )
+        )
+
+        # -------------------------------------------------
+        # PRODUCT
+        # -------------------------------------------------
+
+        product_viewed = data.get(
+            "product_viewed",
+            None
+        )
+
+        if (
+            product_viewed is None
+            and current_page.lower()
+            == "product"
+        ):
+
+            product_viewed = "Product Page"
+
+        # -------------------------------------------------
+        # ADD TO CART
+        # -------------------------------------------------
+
+        added_to_cart = int(
+            data.get(
+                "added_to_cart",
+                1
+                if current_page.lower()
+                == "add to cart"
+                else 0
+            )
+        )
+
+        # -------------------------------------------------
+        # CHECKOUT
+        # -------------------------------------------------
+
+        checkout_started = int(
+            data.get(
+                "checkout_started",
+                1
+                if current_page.lower()
+                == "checkout"
+                else 0
+            )
+        )
+
+        # -------------------------------------------------
+        # PURCHASE
+        # -------------------------------------------------
+
+        purchase_completed = int(
+            data.get(
+                "purchase_completed",
+                1
+                if current_page.lower()
+                == "purchase"
+                else 0
+            )
+        )
+
+        # -------------------------------------------------
+        # PURCHASE AMOUNT
+        # -------------------------------------------------
+
+        purchase_amount = float(
+            data.get(
+                "purchase_amount",
+                0
+            ) or 0
+        )
+
+        # -------------------------------------------------
+        # INSERT INTO FUNNEL_DATA
+        # -------------------------------------------------
+
+        query = """
+            INSERT INTO funnel_data
+            (
+                user_id,
+                visit_date,
+                traffic_source,
+                device,
+                landing_page,
+                product_viewed,
+                added_to_cart,
+                checkout_started,
+                purchase_completed,
+                purchase_amount
+            )
+            VALUES
+            (
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s
+            )
+        """
+
+        values = (
+
+            mysql_user_id,
+
+            datetime.now().date(),
+
+            traffic_source,
+
+            user["device"],
+
+            landing_page,
+
+            product_viewed,
+
+            added_to_cart,
+
+            checkout_started,
+
+            purchase_completed,
+
+            purchase_amount
+
+        )
+
+        cursor.execute(
+            query,
+            values
+        )
+
+        connection.commit()
+
+        print(
+            "Funnel event saved successfully:",
+            mysql_user_id,
+            current_page
+        )
+
+    except Exception as e:
+
+        print(
+            "MySQL funnel save error:",
+            e
+        )
+
+    finally:
+
+        if cursor is not None:
+
+            cursor.close()
+
+        if connection is not None:
+
+            connection.close()
 
 
 # =========================================================
@@ -495,16 +971,20 @@ def historical():
 
     return jsonify({
 
-        "total": total,
+        "total":
+            total,
 
-        "dropped": dropped,
+        "dropped":
+            dropped,
 
-        "not_dropped": not_dropped,
+        "not_dropped":
+            not_dropped,
 
-        "dropoff_rate": round(
-            rate,
-            2
-        )
+        "dropoff_rate":
+            round(
+                rate,
+                2
+            )
 
     })
 
@@ -513,7 +993,11 @@ def historical():
 # LIVE EVENTS API
 #
 # IMPORTANT:
-# ONE ROW PER USER
+# ONE ROW PER USER IS DISPLAYED
+#
+# All events remain stored in MySQL.
+# The dashboard only displays the latest
+# event for each user.
 # =========================================================
 
 @app.route("/api/live")
@@ -522,7 +1006,7 @@ def api_live():
     live_df = load_live_events()
 
     # -----------------------------------------------------
-    # No live events
+    # NO LIVE EVENTS
     # -----------------------------------------------------
 
     if live_df.empty:
@@ -536,7 +1020,7 @@ def api_live():
         })
 
     # -----------------------------------------------------
-    # Make sure timestamp is treated as datetime
+    # TIMESTAMP
     # -----------------------------------------------------
 
     live_df["timestamp"] = pd.to_datetime(
@@ -545,16 +1029,25 @@ def api_live():
     )
 
     # -----------------------------------------------------
-    # Sort newest event first
+    # NEWEST FIRST
     # -----------------------------------------------------
 
     live_df = live_df.sort_values(
-        "timestamp",
-        ascending=False
+
+        [
+            "timestamp",
+            "id"
+        ],
+
+        ascending=[
+            False,
+            False
+        ]
+
     )
 
     # -----------------------------------------------------
-    # KEEP ONLY THE LATEST EVENT OF EACH USER
+    # ONLY LATEST EVENT FOR EACH USER
     #
     # Example:
     #
@@ -562,22 +1055,49 @@ def api_live():
     # U1001 -> Browse
     # U1001 -> Product
     #
-    # Only Product remains.
+    # Dashboard displays:
+    #
+    # U1001 -> Product
+    #
+    # But all 3 records remain in MySQL.
     # -----------------------------------------------------
 
     live_df = live_df.drop_duplicates(
-        subset=["user_id"],
+
+        subset=[
+            "user_id"
+        ],
+
         keep="first"
+
     )
 
     # -----------------------------------------------------
-    # Maximum 50 CURRENT USERS
+    # MAXIMUM 50 CURRENT USERS
     # -----------------------------------------------------
 
     live_df = live_df.head(50)
 
     # -----------------------------------------------------
-    # Convert timestamp back to text
+    # CONVERT USER ID
+    #
+    # MySQL:
+    # 1001
+    #
+    # Dashboard:
+    # U1001
+    # -----------------------------------------------------
+
+    live_df["user_id"] = live_df[
+        "user_id"
+    ].apply(
+        lambda x: f"U{int(x)}"
+        if str(x).isdigit()
+        else str(x)
+    )
+
+    # -----------------------------------------------------
+    # FORMAT TIMESTAMP
     # -----------------------------------------------------
 
     live_df["timestamp"] = (
@@ -588,7 +1108,7 @@ def api_live():
     )
 
     # -----------------------------------------------------
-    # Convert to JSON
+    # JSON RECORDS
     # -----------------------------------------------------
 
     records = (
@@ -601,15 +1121,17 @@ def api_live():
 
     return jsonify({
 
-        "events": records,
+        "events":
+            records,
 
-        "count": len(records)
+        "count":
+            len(records)
 
     })
 
 
 # =========================================================
-# NEXT USER
+# NEXT USER API
 # =========================================================
 
 @app.route("/api/next-user")
@@ -617,7 +1139,8 @@ def api_next_user():
 
     return jsonify({
 
-        "user_id": next_user_id()
+        "user_id":
+            next_user_id()
 
     })
 
@@ -723,7 +1246,7 @@ def api_event():
     )
 
     # -----------------------------------------------------
-    # GET CURRENT PAGE
+    # CURRENT PAGE
     # -----------------------------------------------------
 
     current_page = str(
@@ -734,7 +1257,7 @@ def api_event():
     )
 
     # -----------------------------------------------------
-    # GET USER INFORMATION
+    # USER ID
     # -----------------------------------------------------
 
     user_id = str(
@@ -743,6 +1266,10 @@ def api_event():
             next_user_id()
         )
     )
+
+    # -----------------------------------------------------
+    # USER INFORMATION
+    # -----------------------------------------------------
 
     age = int(
         data.get(
@@ -780,7 +1307,7 @@ def api_event():
     )
 
     # -----------------------------------------------------
-    # CALCULATE PREDICTION
+    # ML PREDICTION
     # -----------------------------------------------------
 
     probability, risk = calculate_prediction(
@@ -838,17 +1365,22 @@ def api_event():
     }
 
     # -----------------------------------------------------
-    # SAVE EVENT
-    #
-    # ALL EVENTS are stored in SQLite.
-    #
-    # The /api/live endpoint decides what is displayed.
+    # SAVE LIVE PREDICTION EVENT TO MYSQL
     # -----------------------------------------------------
 
-    save_event(user)
+    save_live_event(user)
 
     # -----------------------------------------------------
-    # RESPONSE TO SHOP EASY
+    # SAVE SHOP EASY FUNNEL EVENT TO MYSQL
+    # -----------------------------------------------------
+
+    save_event_to_mysql(
+        data,
+        user
+    )
+
+    # -----------------------------------------------------
+    # RESPONSE
     # -----------------------------------------------------
 
     return jsonify({
@@ -874,10 +1406,22 @@ def api_event():
 
 if __name__ == "__main__":
 
-    ensure_table()
+    # -----------------------------------------------------
+    # Make sure MySQL live_events table exists
+    # -----------------------------------------------------
+
+    ensure_mysql_tables()
+
+    # -----------------------------------------------------
+    # START FLASK
+    # -----------------------------------------------------
 
     app.run(
+
         host="0.0.0.0",
+
         port=5000,
+
         debug=True
+
     )
