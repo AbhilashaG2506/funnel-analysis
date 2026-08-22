@@ -2,13 +2,6 @@
 // FUNNEL ANALYTICS - SHOPEASY LIVE TRACKING
 // =========================================================
 
-// IMPORTANT:
-// ShopEasy is hosted on GitHub Pages.
-// FunnelAnalytics Flask API is hosted on Render.
-//
-// DO NOT use "/api/event" here.
-// Use the Render backend URL.
-
 const API_BASE =
   "https://funnel-analysis-1.onrender.com";
 
@@ -40,13 +33,6 @@ function $(id) {
 
 // =========================================================
 // GET / CREATE USER ID
-// =========================================================
-//
-// IMPORTANT:
-// Same browser = same user ID.
-// So if the user comes back later,
-// their old purchase history remains associated
-// with the same user.
 // =========================================================
 
 function getStoredUserId() {
@@ -86,18 +72,14 @@ function startJourney() {
       ? $("userId").value.trim()
       : "";
 
-  // Use manually entered ID if available.
-  // Otherwise use persistent browser ID.
   session.userId =
     inputUser ||
     getStoredUserId();
 
-  // Save it permanently.
   localStorage.setItem(
     "shopeasy_user_id",
     session.userId
   );
-
 
   session.age =
     $("age")
@@ -106,7 +88,6 @@ function startJourney() {
         )
       : 25;
 
-
   session.previousVisits =
     $("previousVisits")
       ? Number(
@@ -114,16 +95,10 @@ function startJourney() {
         )
       : 0;
 
-
   session.page = "Home";
-
   session.pages = 1;
-
   session.clicks = 0;
-
-  session.startedAt =
-    Date.now();
-
+  session.startedAt = Date.now();
 
   if ($("journeyArea")) {
 
@@ -132,7 +107,6 @@ function startJourney() {
       .remove("hidden");
 
   }
-
 
   updatePredictionAndSave();
 }
@@ -145,9 +119,6 @@ function startJourney() {
 async function go(page) {
 
   if (!session.started) {
-
-    // Automatically start using
-    // stored user ID if necessary.
 
     session.started = true;
 
@@ -166,31 +137,20 @@ async function go(page) {
       Date.now();
   }
 
-
   session.page = page;
 
-
   if (page !== "Home") {
-
     session.pages += 1;
-
   }
 
-
   session.clicks += 1;
-
 
   await updatePredictionAndSave();
 }
 
 
 // =========================================================
-// RESET JOURNEY
-// =========================================================
-//
-// IMPORTANT:
-// Resetting the current SESSION must NOT delete
-// the user's old database history.
+// RESET CURRENT SESSION
 // =========================================================
 
 function resetJourney() {
@@ -203,7 +163,6 @@ function resetJourney() {
 
   session.startedAt =
     Date.now();
-
 
   updatePredictionAndSave();
 }
@@ -240,7 +199,6 @@ async function updatePredictionAndSave() {
 
   }
 
-
   const payload = {
 
     user_id:
@@ -273,12 +231,10 @@ async function updatePredictionAndSave() {
 
   };
 
-
   console.log(
     "Sending Funnel Event:",
     payload
   );
-
 
   try {
 
@@ -287,7 +243,6 @@ async function updatePredictionAndSave() {
         API_BASE +
         "/api/event",
         {
-
           method: "POST",
 
           headers: {
@@ -297,10 +252,8 @@ async function updatePredictionAndSave() {
 
           body:
             JSON.stringify(payload)
-
         }
       );
-
 
     if (!r.ok) {
 
@@ -311,16 +264,13 @@ async function updatePredictionAndSave() {
 
     }
 
-
     const d =
       await r.json();
-
 
     console.log(
       "Funnel Event Saved:",
       d
     );
-
 
     const pct =
       Number(
@@ -545,6 +495,36 @@ async function updatePredictionAndSave() {
 
 
 // =========================================================
+// HTML ESCAPE
+// =========================================================
+
+function escapeHtml(value) {
+
+  return String(value ?? "")
+    .replaceAll(
+      "&",
+      "&amp;"
+    )
+    .replaceAll(
+      "<",
+      "&lt;"
+    )
+    .replaceAll(
+      ">",
+      "&gt;"
+    )
+    .replaceAll(
+      '"',
+      "&quot;"
+    )
+    .replaceAll(
+      "'",
+      "&#039;"
+    );
+}
+
+
+// =========================================================
 // REFRESH LIVE TABLE
 // =========================================================
 
@@ -553,31 +533,22 @@ async function refreshLiveTable() {
   const table =
     $("liveTable");
 
-
   if (!table) {
-
     return;
-
   }
-
 
   try {
 
     const r =
       await fetch(
-
         API_BASE +
         "/api/live?ts=" +
         Date.now(),
-
         {
           method: "GET",
-
           cache: "no-store"
         }
-
       );
-
 
     if (!r.ok) {
 
@@ -588,10 +559,8 @@ async function refreshLiveTable() {
 
     }
 
-
     const d =
       await r.json();
-
 
     const events =
       d.events || [];
@@ -637,6 +606,10 @@ async function refreshLiveTable() {
 
       "current_page",
 
+      "purchase_count",
+
+      "journey",
+
       "clicks",
 
       "pages_visited",
@@ -662,6 +635,12 @@ async function refreshLiveTable() {
       current_page:
         "Current Page",
 
+      purchase_count:
+        "Purchases",
+
+      journey:
+        "Journey History",
+
       clicks:
         "Clicks",
 
@@ -681,7 +660,7 @@ async function refreshLiveTable() {
         "Risk",
 
       timestamp:
-        "Time"
+        "Last Activity"
 
     };
 
@@ -693,17 +672,22 @@ async function refreshLiveTable() {
     let h =
       "<table>" +
       "<thead>" +
-      "<tr>" +
+      "<tr>";
 
-      cols
-        .map(
-          c =>
-            "<th>" +
-            labels[c] +
-            "</th>"
-        )
-        .join("") +
 
+    cols.forEach(
+      function(c) {
+
+        h +=
+          "<th>" +
+          labels[c] +
+          "</th>";
+
+      }
+    );
+
+
+    h +=
       "</tr>" +
       "</thead>" +
       "<tbody>";
@@ -729,16 +713,80 @@ async function refreshLiveTable() {
 
 
         // =================================================
+        // PURCHASE COUNT
+        // =================================================
+
+        if (
+          c === "purchase_count"
+        ) {
+
+          v =
+            Number(v || 0);
+
+        }
+
+
+        // =================================================
+        // JOURNEY HISTORY
+        // =================================================
+
+        if (
+          c === "journey"
+        ) {
+
+          if (!v) {
+
+            v =
+              "No previous activity";
+
+          }
+
+          else {
+
+            // Convert backend:
+            //
+            // date - Add to Cart ||
+            // date - Purchase ||
+            // date - Add to Cart
+            //
+            // into a readable journey.
+
+            const parts =
+              String(v)
+                .split(" || ")
+                .map(
+                  function(item) {
+
+                    const pieces =
+                      item.split(
+                        " - "
+                      );
+
+                    return pieces[
+                      pieces.length - 1
+                    ];
+
+                  }
+                );
+
+            v =
+              parts.join(
+                " → "
+              );
+
+          }
+
+        }
+
+
+        // =================================================
         // DROPOUT PERCENTAGE
         // =================================================
 
         if (
-
           c ===
           "dropout_probability" &&
-
           v !== ""
-
         ) {
 
           v =
@@ -762,7 +810,8 @@ async function refreshLiveTable() {
         ) {
 
           v =
-            v + " sec";
+            v +
+            " sec";
 
         }
 
@@ -778,13 +827,21 @@ async function refreshLiveTable() {
           const riskValue =
             String(v);
 
-
           v =
             '<span class="risk-' +
             riskValue.toLowerCase() +
             '">' +
-            riskValue +
+            escapeHtml(
+              riskValue
+            ) +
             "</span>";
+
+        }
+
+        else {
+
+          v =
+            escapeHtml(v);
 
         }
 
@@ -798,8 +855,9 @@ async function refreshLiveTable() {
         ) {
 
           const device =
-            String(v);
-
+            String(
+              row[c] ?? ""
+            );
 
           if (
             device
@@ -809,7 +867,23 @@ async function refreshLiveTable() {
 
             v =
               "📱 " +
-              device;
+              escapeHtml(
+                device
+              );
+
+          }
+
+          else if (
+            device
+              .toLowerCase()
+              .includes("tablet")
+          ) {
+
+            v =
+              "📱 " +
+              escapeHtml(
+                device
+              );
 
           }
 
@@ -817,7 +891,9 @@ async function refreshLiveTable() {
 
             v =
               "💻 " +
-              device;
+              escapeHtml(
+                device
+              );
 
           }
 
@@ -825,32 +901,28 @@ async function refreshLiveTable() {
 
 
         // =================================================
-        // HTML ESCAPE
+        // JOURNEY DISPLAY
         // =================================================
 
-        const safeValue =
-          String(v)
-            .replaceAll(
-              "&",
-              "&amp;"
-            )
-            .replaceAll(
-              "<",
-              "&lt;"
-            )
-            .replaceAll(
-              ">",
-              "&gt;"
-            )
-            .replaceAll(
-              '"',
-              "&quot;"
-            );
+        if (
+          c === "journey"
+        ) {
+
+          v =
+            '<span title="' +
+            escapeHtml(
+              row[c] ?? ""
+            ) +
+            '">' +
+            v +
+            "</span>";
+
+        }
 
 
         h +=
           "<td>" +
-          safeValue +
+          v +
           "</td>";
 
       }
@@ -871,7 +943,6 @@ async function refreshLiveTable() {
       h;
 
   }
-
 
   catch (e) {
 
@@ -908,7 +979,7 @@ if (
   // every second.
 
   setInterval(
-    () => {
+    function() {
 
       if (
         session.started
@@ -938,12 +1009,6 @@ if (
 
 // =========================================================
 // EXPOSE FUNCTIONS
-// =========================================================
-//
-// Required if dashboard buttons use:
-// onclick="startJourney()"
-// onclick="go('Product')"
-// etc.
 // =========================================================
 
 window.startJourney =
