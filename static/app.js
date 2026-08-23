@@ -346,7 +346,6 @@ async function updatePredictionAndSave() {
 
     }
 
-
     if ($("predProbability")) {
 
       $("predProbability")
@@ -521,6 +520,7 @@ function escapeHtml(value) {
       "'",
       "&#039;"
     );
+
 }
 
 
@@ -562,8 +562,38 @@ async function refreshLiveTable() {
     const d =
       await r.json();
 
+    // =====================================================
+    // DEBUG - SHOW LIVE API RESPONSE
+    // =====================================================
+
+    console.log(
+      "LIVE SUMMARY RESPONSE:",
+      d
+    );
+
+
+    // =====================================================
+    // IMPORTANT FIX
+    //
+    // Backend may return:
+    //
+    // {
+    //   "events": [...]
+    // }
+    //
+    // OR:
+    //
+    // {
+    //   "data": [...]
+    // }
+    //
+    // So support both.
+    // =====================================================
+
     const events =
-      d.events || [];
+      d.events ||
+      d.data ||
+      [];
 
 
     // =====================================================
@@ -967,7 +997,9 @@ if (
   refreshLiveTable();
 
 
+  // =======================================================
   // Refresh every 2 seconds.
+  // =======================================================
 
   setInterval(
     refreshLiveTable,
@@ -975,8 +1007,9 @@ if (
   );
 
 
-  // Update session duration
-  // every second.
+  // =======================================================
+  // Update session duration every second.
+  // =======================================================
 
   setInterval(
     function() {
