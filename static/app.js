@@ -542,7 +542,7 @@ async function refreshLiveTable() {
     const r =
       await fetch(
         API_BASE +
-        "/api/live?ts=" +
+        "/api/live/summary?ts=" +
         Date.now(),
         {
           method: "GET",

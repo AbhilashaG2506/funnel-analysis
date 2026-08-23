@@ -1,1317 +1,945 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
-import sqlite3
-import joblib
+from flask import Flask, request, jsonify, render_template
+from flask_cors import CORS
+import mysql.connector
+from mysql.connector import Error
 import os
-import plotly.express as px
+import joblib
+from datetime import datetime
 
 # =========================================================
-# PAGE CONFIGURATION
+# FLASK APP
 # =========================================================
 
-st.set_page_config(
-    page_title="User Journey Analytics",
-    page_icon="📊",
-    layout="wide"
-)
+app = Flask(__name__)
+CORS(app)
 
 # =========================================================
-# PROFESSIONAL UI / UX
+# MYSQL CONFIGURATION
+# =========================================================
+#
+# Local MySQL:
+# Host     : localhost
+# Port     : 3306
+# Username : root
+# Password : stored in environment variable
+# Database : funnel_analysis
+# For Render, environment variables can override these.
 # =========================================================
 
-st.markdown("""
-<style>
+MYSQL_HOST = os.getenv("MYSQL_HOST", "mysql-664df23-funnelanalytics.f.aivencloud.com")
 
-    /* ---------- APP BACKGROUND ---------- */
-    .stApp {
-        background: #f5f7fb;
-    }
+MYSQL_PORT = int(os.getenv("MYSQL_PORT", "11586"))
 
-    /* ---------- MAIN CONTENT ---------- */
-    .block-container {
-        max-width: 1450px;
-        padding-top: 2rem;
-        padding-bottom: 3rem;
-        padding-left: 3rem;
-        padding-right: 3rem;
-    }
+MYSQL_USER = os.getenv("MYSQL_USER", "avnadmin")
 
-    /* ---------- HEADINGS ---------- */
-    h1 {
-        font-size: 42px !important;
-        font-weight: 750 !important;
-        letter-spacing: -1.2px;
-        color: #172033 !important;
-    }
+MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "")
 
-    h2 {
-        font-size: 28px !important;
-        font-weight: 700 !important;
-        color: #172033 !important;
-        margin-top: 1rem;
-    }
-
-    h3 {
-        font-size: 21px !important;
-        font-weight: 650 !important;
-        color: #273449 !important;
-    }
-
-    /* ---------- METRIC CARDS ---------- */
-    [data-testid="stMetric"] {
-        background: #ffffff;
-        border: 1px solid #e6eaf0;
-        border-radius: 16px;
-        padding: 20px 22px;
-        box-shadow: 0 5px 18px rgba(31, 41, 55, 0.06);
-        min-height: 120px;
-    }
-
-    [data-testid="stMetricLabel"] {
-        font-size: 14px !important;
-        font-weight: 600 !important;
-        color: #64748b !important;
-    }
-
-    [data-testid="stMetricValue"] {
-        font-size: 31px !important;
-        font-weight: 750 !important;
-        color: #172033 !important;
-    }
-
-    /* ---------- BUTTONS ---------- */
-    .stButton > button {
-        border-radius: 10px;
-        border: 1px solid #d9e0ea;
-        background: #ffffff;
-        color: #263247;
-        font-weight: 650;
-        min-height: 42px;
-        transition: all 0.15s ease;
-    }
-
-    .stButton > button:hover {
-        border-color: #4f46e5;
-        color: #4f46e5;
-        box-shadow: 0 4px 12px rgba(79, 70, 229, 0.12);
-    }
-
-    /* ---------- SIDEBAR ---------- */
-    section[data-testid="stSidebar"] {
-        background: #111827;
-        border-right: 1px solid #1f2937;
-    }
-
-    section[data-testid="stSidebar"] * {
-        color: #f8fafc !important;
-    }
-
-    section[data-testid="stSidebar"] [data-testid="stRadio"] label {
-        padding: 8px 10px;
-        border-radius: 8px;
-        font-weight: 550;
-    }
-
-    /* ---------- TABLES ---------- */
-    [data-testid="stDataFrame"] {
-        border: 1px solid #e5e7eb;
-        border-radius: 14px;
-        overflow: hidden;
-        background: #ffffff;
-        box-shadow: 0 4px 14px rgba(31, 41, 55, 0.04);
-    }
-
-    /* ---------- ALERTS ---------- */
-    [data-testid="stAlert"] {
-        border-radius: 12px;
-    }
-
-    /* ---------- DIVIDERS ---------- */
-    hr {
-        border: none;
-        border-top: 1px solid #e3e7ef;
-        margin: 1.5rem 0;
-    }
-
-    /* ---------- PLOTLY CHART CONTAINER ---------- */
-    .stPlotlyChart {
-        background: #ffffff;
-        border: 1px solid #e6eaf0;
-        border-radius: 16px;
-        padding: 10px;
-        box-shadow: 0 5px 18px rgba(31, 41, 55, 0.05);
-    }
-
-    /* ---------- INPUTS ---------- */
-    div[data-baseweb="input"] > div,
-    div[data-baseweb="select"] > div {
-        border-radius: 10px;
-    }
-
-    /* ---------- CAPTION ---------- */
-    .stCaption {
-        color: #64748b !important;
-    }
-
-</style>
-""", unsafe_allow_html=True)
+MYSQL_DATABASE = os.getenv("MYSQL_DATABASE", "defaultdb")
 
 
 # =========================================================
-# FILE PATHS
+# MODEL
 # =========================================================
 
-DATA_FILE = "data/user_journey_data.csv"
-DB_FILE = "data/user_journey.db"
 MODEL_FILE = "models/dropout_model.pkl"
 
-# =========================================================
-# LOAD HISTORICAL DATA
-# =========================================================
+model = None
 
-@st.cache_data
-def load_historical_data():
-
-    if os.path.exists(DATA_FILE):
-        return pd.read_csv(DATA_FILE)
-
-    return pd.DataFrame()
-
-
-df = load_historical_data()
-
-# =========================================================
-# LOAD MACHINE LEARNING MODEL
-# =========================================================
-
-@st.cache_resource
-def load_model():
-
+try:
     if os.path.exists(MODEL_FILE):
-        return joblib.load(MODEL_FILE)
+        model = joblib.load(MODEL_FILE)
+        print("✅ Drop-off model loaded successfully")
+    else:
+        print("⚠️ Model file not found:", MODEL_FILE)
+except Exception as e:
+    print("⚠️ Could not load model:", e)
 
-    return None
-
-
-model = load_model()
-
-# =========================================================
-# FEATURES USED BY MODEL
-# =========================================================
-
-features = [
-    "age",
-    "pages_visited",
-    "session_duration",
-    "clicks",
-    "previous_visits"
-]
 
 # =========================================================
-# LIVE DATABASE
+# MYSQL CONNECTION
 # =========================================================
 
-def get_live_data():
+def get_db_connection():
+    try:
+
+        connection = mysql.connector.connect(
+    host=MYSQL_HOST,
+    port=MYSQL_PORT,
+    user=MYSQL_USER,
+    password=MYSQL_PASSWORD,
+    database=MYSQL_DATABASE,
+    ssl_disabled=False
+)
+
+        return connection
+
+    except Error as e:
+
+        print("❌ MySQL connection error:", e)
+
+        return None
+
+
+# =========================================================
+# CREATE TABLE IF REQUIRED
+# =========================================================
+
+def initialize_database():
+
+    # First connect without database
+    try:
+
+        connection = mysql.connector.connect(
+            host=MYSQL_HOST,
+            port=MYSQL_PORT,
+            user=MYSQL_USER,
+            password=MYSQL_PASSWORD
+        )
+
+        cursor = connection.cursor()
+
+        cursor.execute(
+            f"""
+            CREATE DATABASE IF NOT EXISTS `{MYSQL_DATABASE}`
+            """
+        )
+
+        connection.commit()
+
+        cursor.close()
+        connection.close()
+
+        print("✅ MySQL database checked:", MYSQL_DATABASE)
+
+    except Error as e:
+
+        print("❌ Could not create/check database:", e)
+
+        return
+
+    # Now connect to database
+    connection = get_db_connection()
+
+    if connection is None:
+        return
 
     try:
 
-        if not os.path.exists(DB_FILE):
-            return pd.DataFrame()
+        cursor = connection.cursor()
 
-        conn = sqlite3.connect(DB_FILE)
-
-        live_df = pd.read_sql_query(
+        cursor.execute(
             """
-            SELECT *
-            FROM user_events
-            ORDER BY timestamp DESC
-            """,
-            conn
-        )
+            CREATE TABLE IF NOT EXISTS user_events (
 
-        conn.close()
+                id INT AUTO_INCREMENT PRIMARY KEY,
 
-        return live_df
+                user_id VARCHAR(100),
 
-    except Exception:
-        return pd.DataFrame()
+                clicks INT DEFAULT 0,
 
+                session_duration FLOAT DEFAULT 0,
 
-live_df = get_live_data()
+                device VARCHAR(50),
 
-# =========================================================
-# HISTORICAL METRICS
-# =========================================================
+                pages_visited INT DEFAULT 0,
 
-total_users = len(df)
+                current_page VARCHAR(100),
 
-# ---------------------------------------------------------
-# FIND PURCHASES
-# ---------------------------------------------------------
+                dropoff_probability FLOAT DEFAULT 0,
 
-historical_purchases = 0
+                risk VARCHAR(20),
 
-if not df.empty:
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
 
-    possible_page_columns = [
-        "current_page",
-        "page",
-        "stage"
-    ]
-
-    page_column = None
-
-    for col in possible_page_columns:
-
-        if col in df.columns:
-            page_column = col
-            break
-
-    if page_column:
-
-        historical_purchases = (
-            df[page_column]
-            .astype(str)
-            .str.lower()
-            .eq("purchase")
-            .sum()
-        )
-
-# ---------------------------------------------------------
-# IF PURCHASE COLUMN EXISTS
-# ---------------------------------------------------------
-
-if historical_purchases == 0 and not df.empty:
-
-    possible_purchase_columns = [
-        "purchase",
-        "purchased",
-        "is_purchase",
-        "conversion"
-    ]
-
-    for col in possible_purchase_columns:
-
-        if col in df.columns:
-
-            try:
-                historical_purchases = int(
-                    df[col].sum()
-                )
-
-                break
-
-            except Exception:
-                pass
-
-
-# ---------------------------------------------------------
-# CONVERSION RATE
-# ---------------------------------------------------------
-
-if total_users > 0:
-
-    conversion_rate = (
-        historical_purchases / total_users
-    ) * 100
-
-else:
-
-    conversion_rate = 0
-
-
-# =========================================================
-# HISTORICAL HIGH-RISK USERS
-# =========================================================
-
-historical_high_risk = 0
-
-# ---------------------------------------------------------
-# If dropout_probability exists
-# ---------------------------------------------------------
-
-if "dropoff_probability" in df.columns:
-
-    historical_high_risk = (
-        df["dropoff_probability"] >= 0.70
-    ).sum()
-
-# ---------------------------------------------------------
-# If probability is percentage
-# ---------------------------------------------------------
-
-elif "dropoff_probability" in df.columns:
-
-    historical_high_risk = (
-        df["dropoff_probability"] >= 70
-    ).sum()
-
-# ---------------------------------------------------------
-# If risk column exists
-# ---------------------------------------------------------
-
-elif "risk" in df.columns:
-
-    historical_high_risk = (
-        df["risk"]
-        .astype(str)
-        .str.upper()
-        .eq("HIGH")
-        .sum()
-    )
-
-# =========================================================
-# LIVE METRICS
-# =========================================================
-
-if not live_df.empty:
-
-    live_users = live_df["user_id"].nunique()
-
-    live_events = len(live_df)
-
-    # -----------------------------------------------------
-    # LIVE PURCHASES
-    # -----------------------------------------------------
-
-    live_purchases = (
-        live_df["current_page"]
-        .astype(str)
-        .str.lower()
-        .eq("purchase")
-        .sum()
-    )
-
-    # -----------------------------------------------------
-    # LIVE HIGH RISK
-    # -----------------------------------------------------
-
-    if "risk" in live_df.columns:
-
-        live_high_risk = (
-            live_df["risk"]
-            .astype(str)
-            .str.upper()
-            .eq("HIGH")
-            .sum()
-        )
-
-    else:
-
-        live_high_risk = 0
-
-else:
-
-    live_users = 0
-    live_events = 0
-    live_purchases = 0
-    live_high_risk = 0
-
-
-# =========================================================
-# SIDEBAR
-# =========================================================
-
-st.sidebar.title("🚀 JourneyIQ")
-
-st.sidebar.write("Select Module")
-
-page = st.sidebar.radio(
-    "",
-    [
-        "Dashboard",
-        "Funnel Analysis",
-        "Drop-Off Prediction",
-        "Live User Prediction",
-        "Model Performance",
-        "User Data"
-    ]
-)
-
-st.sidebar.divider()
-
-st.sidebar.info(
-    "JourneyIQ • Real-Time User Journey Funnel "
-    "Analysis and Drop-Off Prediction System"
-)
-
-
-# =========================================================
-# DASHBOARD
-# =========================================================
-
-if page == "Dashboard":
-
-    st.title(
-        "🚀 JourneyIQ"
-    )
-
-    st.write(
-        "Analyze user behavior, identify funnel drop-offs, "
-        "and predict users at risk of dropping off."
-    )
-
-    st.divider()
-
-    # =====================================================
-    # HISTORICAL ANALYTICS
-    # =====================================================
-
-    st.subheader("📊 Historical Analytics")
-
-    h1, h2, h3, h4 = st.columns(4)
-
-    with h1:
-
-        st.metric(
-            "Historical Users",
-            f"{total_users:,}"
-        )
-
-    with h2:
-
-        st.metric(
-            "Historical Purchases",
-            f"{historical_purchases:,}"
-        )
-
-    with h3:
-
-        st.metric(
-            "Historical Conversion",
-            f"{conversion_rate:.2f}%"
-        )
-
-    with h4:
-
-        st.metric(
-            "Historical High-Risk Users",
-            f"{historical_high_risk:,}"
-        )
-
-    st.divider()
-
-    # =====================================================
-    # LIVE ANALYTICS
-    # =====================================================
-
-    st.subheader("🔴 Live Analytics")
-
-    l1, l2, l3, l4 = st.columns(4)
-
-    with l1:
-
-        st.metric(
-            "Live Users",
-            f"{live_users:,}"
-        )
-
-    with l2:
-
-        st.metric(
-            "Live Events",
-            f"{live_events:,}"
-        )
-
-    with l3:
-
-        st.metric(
-            "Live Purchases",
-            f"{live_purchases:,}"
-        )
-
-    with l4:
-
-        st.metric(
-            "Live High-Risk Users",
-            f"{live_high_risk:,}"
-        )
-
-    # =====================================================
-    # LIVE USER ACTIVITY
-    # =====================================================
-
-    st.divider()
-
-    st.subheader("🔴 Live User Activity")
-
-    if not live_df.empty:
-
-        display_columns = [
-            "timestamp",
-            "user_id",
-            "current_page",
-            "age",
-            "pages_visited",
-            "session_duration",
-            "clicks",
-            "previous_visits"
-        ]
-
-        available_columns = [
-            col
-            for col in display_columns
-            if col in live_df.columns
-        ]
-
-        live_display = live_df[
-            available_columns
-        ].head(10).copy()
-
-        # Add prediction columns if available
-
-        if "dropoff_probability" in live_df.columns:
-
-            live_display["Drop-Off %"] = (
-                live_df[
-                    "dropoff_probability"
-                ].head(10) * 100
-            ).round(2)
-
-        if "risk" in live_df.columns:
-
-            live_display["Risk"] = (
-                live_df["risk"].head(10)
             )
-
-        st.dataframe(
-            live_display,
-            width="stretch",
-            hide_index=True
+            """
         )
 
-    else:
+        connection.commit()
 
-        st.info(
-            "No live user activity recorded yet."
-        )
+        cursor.close()
+        connection.close()
 
-    # =====================================================
-    # HISTORICAL FUNNEL
-    # =====================================================
+        print("✅ user_events table checked successfully")
 
-    st.divider()
+    except Error as e:
 
-    st.subheader("🔽 User Journey Funnel")
-
-    stages = [
-        "Home",
-        "Sign Up",
-        "Browse",
-        "Product",
-        "Add to Cart",
-        "Checkout",
-        "Purchase"
-    ]
-
-    # -----------------------------------------------------
-    # Create funnel from historical data
-    # -----------------------------------------------------
-
-    funnel_values = []
-
-    if not df.empty:
-
-        if "current_page" in df.columns:
-
-            for stage in stages:
-
-                count = (
-                    df["current_page"]
-                    .astype(str)
-                    .str.lower()
-                    .eq(stage.lower())
-                    .sum()
-                )
-
-                funnel_values.append(count)
-
-        else:
-
-            # fallback based on existing screenshot
-            funnel_values = [
-                5000,
-                4121,
-                3374,
-                2645,
-                1885,
-                1116,
-                471
-            ]
-
-    else:
-
-        funnel_values = [
-            5000,
-            4121,
-            3374,
-            2645,
-            1885,
-            1116,
-            471
-        ]
-
-    funnel_df = pd.DataFrame({
-        "Stage": stages,
-        "Users": funnel_values
-    })
-
-    fig = px.funnel(
-        funnel_df,
-        x="Users",
-        y="Stage",
-        title="Historical User Progress Through Journey"
-    )
-
-    st.plotly_chart(
-        fig,
-        width="stretch"
-    )
-
-
-# =========================================================
-# FUNNEL ANALYSIS
-# =========================================================
-
-elif page == "Funnel Analysis":
-
-    st.title("🔽 Funnel Analysis")
-
-    st.write(
-        "Analyze how users move through each stage "
-        "of the customer journey."
-    )
-
-    stages = [
-        "Home",
-        "Sign Up",
-        "Browse",
-        "Product",
-        "Add to Cart",
-        "Checkout",
-        "Purchase"
-    ]
-
-    funnel_values = [
-        5000,
-        4121,
-        3374,
-        2645,
-        1885,
-        1116,
-        471
-    ]
-
-    funnel_df = pd.DataFrame({
-        "Stage": stages,
-        "Users": funnel_values
-    })
-
-    fig = px.funnel(
-        funnel_df,
-        x="Users",
-        y="Stage",
-        title="User Progress Through Journey"
-    )
-
-    st.plotly_chart(
-        fig,
-        width="stretch"
-    )
-
-    st.subheader(
-        "📉 Stage-wise Drop-Off"
-    )
-
-    dropoff_values = []
-
-    for i in range(len(funnel_values)):
-
-        if i == 0:
-
-            dropoff_values.append(0)
-
-        else:
-
-            previous = funnel_values[i - 1]
-            current = funnel_values[i]
-
-            dropoff = (
-                (previous - current)
-                / previous
-            ) * 100
-
-            dropoff_values.append(
-                round(dropoff, 2)
-            )
-
-    dropoff_df = pd.DataFrame({
-        "Stage": stages,
-        "Users": funnel_values,
-        "Drop-Off %": dropoff_values
-    })
-
-    st.dataframe(
-        dropoff_df,
-        width="stretch",
-        hide_index=True
-    )
+        print("❌ Could not create user_events table:", e)
 
 
 # =========================================================
 # DROP-OFF PREDICTION
 # =========================================================
 
-elif page == "Drop-Off Prediction":
+def predict_dropoff(
+    age,
+    pages_visited,
+    session_duration,
+    clicks,
+    previous_visits
+):
 
-    st.title("🔴 Drop-Off Prediction")
+    # -----------------------------------------------------
+    # Use trained ML model if available
+    # -----------------------------------------------------
 
-    st.write(
-        "Predict the probability that a user will "
-        "drop off based on behavioral characteristics."
-    )
+    if model is not None:
 
-    if model is None:
+        try:
 
-        st.error(
-            "ML model not found. "
-            "Please check models/dropout_model.pkl"
-        )
-
-    else:
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-
-            age_input = st.number_input(
-                "Age",
-                min_value=10,
-                max_value=100,
-                value=25
-            )
-
-            pages_input = st.number_input(
-                "Pages Visited",
-                min_value=1,
-                max_value=100,
-                value=5
-            )
-
-            duration_input = st.number_input(
-                "Session Duration",
-                min_value=0,
-                max_value=10000,
-                value=60
-            )
-
-        with col2:
-
-            clicks_input = st.number_input(
-                "Clicks",
-                min_value=0,
-                max_value=1000,
-                value=5
-            )
-
-            visits_input = st.number_input(
-                "Previous Visits",
-                min_value=0,
-                max_value=100,
-                value=3
-            )
-
-        if st.button(
-            "🔮 Predict Drop-Off",
-            width="stretch"
-        ):
+            import pandas as pd
 
             prediction_data = pd.DataFrame({
 
-                "age": [age_input],
+                "age": [float(age)],
 
                 "pages_visited": [
-                    pages_input
+                    float(pages_visited)
                 ],
 
                 "session_duration": [
-                    duration_input
+                    float(session_duration)
                 ],
 
                 "clicks": [
-                    clicks_input
+                    float(clicks)
                 ],
 
                 "previous_visits": [
-                    visits_input
+                    float(previous_visits)
                 ]
 
             })
 
-            try:
+            features = [
+                "age",
+                "pages_visited",
+                "session_duration",
+                "clicks",
+                "previous_visits"
+            ]
 
-                probability = model.predict_proba(
+            probability = float(
+                model.predict_proba(
                     prediction_data[features]
                 )[0][1]
+            )
 
-                percentage = probability * 100
+            if probability >= 0.70:
 
-                if probability >= 0.70:
+                risk = "HIGH"
 
-                    risk = "HIGH"
+            elif probability >= 0.40:
 
-                elif probability >= 0.40:
+                risk = "MEDIUM"
 
-                    risk = "MEDIUM"
+            else:
 
-                else:
+                risk = "LOW"
 
-                    risk = "LOW"
+            return probability, risk
 
-                c1, c2 = st.columns(2)
+        except Exception as e:
 
-                with c1:
+            print("⚠️ Model prediction error:", e)
 
-                    st.metric(
-                        "Drop-Off Probability",
-                        f"{percentage:.2f}%"
-                    )
+    # -----------------------------------------------------
+    # Fallback prediction
+    # -----------------------------------------------------
 
-                with c2:
+    # This is only used if the ML model is unavailable.
 
-                    st.metric(
-                        "Risk Level",
-                        risk
-                    )
+    risk_score = 0.0
 
-                st.progress(
-                    min(probability, 1.0)
-                )
+    if pages_visited <= 2:
+        risk_score += 0.30
 
-                if risk == "HIGH":
+    elif pages_visited <= 4:
+        risk_score += 0.15
 
-                    st.error(
-                        "🚨 HIGH RISK: User may leave."
-                    )
+    if session_duration < 10:
+        risk_score += 0.30
 
-                elif risk == "MEDIUM":
+    elif session_duration < 30:
+        risk_score += 0.15
 
-                    st.warning(
-                        "⚠️ MEDIUM RISK: "
-                        "User may need engagement."
-                    )
+    if clicks <= 2:
+        risk_score += 0.20
 
-                else:
+    elif clicks <= 4:
+        risk_score += 0.10
 
-                    st.success(
-                        "🟢 LOW RISK: "
-                        "User appears engaged."
-                    )
+    if previous_visits == 0:
+        risk_score += 0.20
 
-            except Exception as e:
+    elif previous_visits <= 2:
+        risk_score += 0.10
 
-                st.error(
-                    f"Prediction error: {e}"
-                )
+    probability = min(risk_score, 0.99)
 
+    if probability >= 0.70:
 
-# =========================================================
-# LIVE USER PREDICTION
-# =========================================================
+        risk = "HIGH"
 
-elif page == "Live User Prediction":
+    elif probability >= 0.40:
 
-    st.title("🌐 Live User Journey")
-
-    st.write(
-        "Monitor the latest user activity and "
-        "live drop-off prediction."
-    )
-
-    if live_df.empty:
-
-        st.info(
-            "No live user activity available yet."
-        )
+        risk = "MEDIUM"
 
     else:
 
-        latest = live_df.iloc[0]
+        risk = "LOW"
 
-        c1, c2, c3, c4 = st.columns(4)
-
-        with c1:
-
-            st.metric(
-                "User ID",
-                str(latest.get(
-                    "user_id",
-                    "N/A"
-                ))
-            )
-
-        with c2:
-
-            st.metric(
-                "Current Page",
-                str(latest.get(
-                    "current_page",
-                    "N/A"
-                ))
-            )
-
-        with c3:
-
-            st.metric(
-                "Clicks",
-                str(latest.get(
-                    "clicks",
-                    0
-                ))
-            )
-
-        with c4:
-
-            st.metric(
-                "Pages Visited",
-                str(latest.get(
-                    "pages_visited",
-                    0
-                ))
-            )
-
-        st.divider()
-
-        if "dropoff_probability" in latest.index:
-
-            probability = float(
-                latest["dropoff_probability"]
-            )
-
-            st.subheader(
-                "🔴 Live Drop-Off Prediction"
-            )
-
-            p1, p2 = st.columns(2)
-
-            with p1:
-
-                st.metric(
-                    "Drop-Off Probability",
-                    f"{probability * 100:.2f}%"
-                )
-
-            with p2:
-
-                risk = str(
-                    latest.get(
-                        "risk",
-                        "UNKNOWN"
-                    )
-                )
-
-                st.metric(
-                    "Risk",
-                    risk
-                )
-
-            st.progress(
-                min(probability, 1.0)
-            )
-
-        st.divider()
-
-        st.subheader(
-            "📡 Recent Live User Events"
-        )
-
-        st.dataframe(
-            live_df.head(20),
-            width="stretch",
-            hide_index=True
-        )
+    return probability, risk
 
 
 # =========================================================
-# MODEL PERFORMANCE
+# HEALTH CHECK
 # =========================================================
 
-elif page == "Model Performance":
+@app.route("/")
+def home():
+    return render_template(
+        "dashboard.html",
+        site="Funnel Analysis"
+    )
 
-    st.title("📊 Model Performance")
 
-    st.write(
-        "Performance evaluation of the "
-        "drop-off prediction model."
+@app.route("/live")
+def live():
+    return render_template(
+        "dashboard.html",
+        site="Live Prediction"
+    )
+
+# =========================================================
+# MYSQL HEALTH CHECK
+# =========================================================
+
+@app.route("/api/health")
+def health():
+
+    connection = get_db_connection()
+
+    if connection is None:
+
+        return jsonify({
+            "status": "error",
+            "mysql": "disconnected",
+            "database": MYSQL_DATABASE
+        }), 500
+
+    try:
+
+        cursor = connection.cursor()
+
+        cursor.execute("SELECT 1")
+
+        cursor.fetchone()
+
+        cursor.close()
+        connection.close()
+
+        return jsonify({
+            "status": "ok",
+            "mysql": "connected",
+            "database": MYSQL_DATABASE
+        })
+
+    except Exception as e:
+
+        return jsonify({
+            "status": "error",
+            "mysql": "error",
+            "message": str(e)
+        }), 500
+
+
+# =========================================================
+# RECEIVE LIVE USER EVENT
+# =========================================================
+
+@app.route("/api/event", methods=["POST", "OPTIONS"])
+def receive_event():
+
+    # -----------------------------------------------------
+    # Handle browser CORS preflight
+    # -----------------------------------------------------
+
+    if request.method == "OPTIONS":
+
+        return jsonify({
+            "status": "ok"
+        })
+
+    # -----------------------------------------------------
+    # Get JSON
+    # -----------------------------------------------------
+
+    data = request.get_json(
+        silent=True
+    )
+
+    if not data:
+
+        return jsonify({
+            "success": False,
+            "message": "No JSON data received"
+        }), 400
+
+    print("\n📡 LIVE EVENT RECEIVED")
+    print(data)
+
+    # -----------------------------------------------------
+    # Extract values
+    # -----------------------------------------------------
+
+    user_id = str(
+        data.get(
+            "user_id",
+            "UNKNOWN"
+        )
+    )
+
+    clicks = int(
+        data.get(
+            "clicks",
+            0
+        ) or 0
+    )
+
+    session_duration = float(
+        data.get(
+            "session_duration",
+            data.get(
+                "session_time",
+                0
+            )
+        ) or 0
+    )
+
+    device = str(
+        data.get(
+            "device",
+            "Desktop"
+        )
+    )
+
+    pages_visited = int(
+        data.get(
+            "pages_visited",
+            0
+        ) or 0
+    )
+
+    current_page = str(
+        data.get(
+            "current_page",
+            data.get(
+                "page",
+                "Home"
+            )
+        )
+    )
+
+    age = float(
+        data.get(
+            "age",
+            25
+        ) or 25
+    )
+
+    previous_visits = int(
+        data.get(
+            "previous_visits",
+            0
+        ) or 0
     )
 
     # -----------------------------------------------------
-    # Try to calculate performance from dataset
+    # Predict drop-off
     # -----------------------------------------------------
 
-    if model is not None and not df.empty:
+    probability, risk = predict_dropoff(
+        age=age,
+        pages_visited=pages_visited,
+        session_duration=session_duration,
+        clicks=clicks,
+        previous_visits=previous_visits
+    )
 
-        target_column = None
+    # -----------------------------------------------------
+    # Insert into MySQL
+    # -----------------------------------------------------
 
-        possible_targets = [
-            "dropoff",
-            "drop_off",
-            "dropoff_flag",
-            "is_dropoff",
-            "dropout",
-            "target"
-        ]
+    connection = get_db_connection()
 
-        for col in possible_targets:
+    if connection is None:
 
-            if col in df.columns:
+        return jsonify({
+            "success": False,
+            "message": "Could not connect to MySQL"
+        }), 500
 
-                target_column = col
-                break
+    try:
 
-        if target_column and all(
-            feature in df.columns
-            for feature in features
-        ):
+        cursor = connection.cursor()
 
-            try:
+        sql = """
+            INSERT INTO user_events
+            (
+                user_id,
+                clicks,
+                session_duration,
+                device,
+                pages_visited,
+                current_page,
+                dropoff_probability,
+                risk,
+                timestamp
+            )
+            VALUES
+            (
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s
+            )
+        """
 
-                X = df[features]
-                y = df[target_column]
+        values = (
+            user_id,
+            clicks,
+            session_duration,
+            device,
+            pages_visited,
+            current_page,
+            probability,
+            risk,
+            datetime.now()
+        )
 
-                predictions = model.predict(X)
+        cursor.execute(
+            sql,
+            values
+        )
 
-                from sklearn.metrics import (
-                    accuracy_score,
-                    precision_score,
-                    recall_score,
-                    f1_score,
-                    confusion_matrix
-                )
+        connection.commit()
 
-                accuracy = accuracy_score(
-                    y,
-                    predictions
-                )
+        inserted_id = cursor.lastrowid
 
-                precision = precision_score(
-                    y,
-                    predictions,
-                    zero_division=0
-                )
+        cursor.close()
+        connection.close()
 
-                recall = recall_score(
-                    y,
-                    predictions,
-                    zero_division=0
-                )
+        print(
+            f"✅ Event stored in MySQL | "
+            f"ID={inserted_id} | "
+            f"User={user_id} | "
+            f"Page={current_page} | "
+            f"Risk={risk}"
+        )
 
-                f1 = f1_score(
-                    y,
-                    predictions,
-                    zero_division=0
-                )
+        return jsonify({
 
-                c1, c2, c3, c4 = st.columns(4)
+            "success": True,
 
-                with c1:
+            "message": "Event stored successfully",
 
-                    st.metric(
-                        "Accuracy",
-                        f"{accuracy * 100:.2f}%"
+            "id": inserted_id,
+
+            "user_id": user_id,
+
+            "current_page": current_page,
+
+            "dropoff_probability": round(
+                probability,
+                4
+            ),
+
+            "dropoff_percentage": round(
+                probability * 100,
+                2
+            ),
+
+            "risk": risk
+
+        }), 201
+
+    except Error as e:
+
+        print(
+            "❌ MySQL insert error:",
+            e
+        )
+
+        try:
+            connection.close()
+        except:
+            pass
+
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+
+# =========================================================
+# GET LIVE EVENTS
+# =========================================================
+
+@app.route("/api/live", methods=["GET"])
+def get_live_events():
+
+    connection = get_db_connection()
+
+    if connection is None:
+
+        return jsonify({
+            "success": False,
+            "message": "Could not connect to MySQL",
+            "data": []
+        }), 500
+
+    try:
+
+        cursor = connection.cursor(
+            dictionary=True
+        )
+
+        cursor.execute(
+            """
+            SELECT
+                id AS event_id,
+                user_id,
+                clicks,
+                session_duration,
+                device,
+                pages_visited,
+                current_page,
+                dropoff_probability,
+                risk,
+                timestamp
+            FROM user_events
+            ORDER BY timestamp DESC
+            LIMIT 100
+            """
+        )
+
+        rows = cursor.fetchall()
+
+        cursor.close()
+        connection.close()
+
+        # Convert datetime to JSON-compatible string
+        for row in rows:
+
+            if row.get("timestamp"):
+
+                row["timestamp"] = (
+                    row["timestamp"]
+                    .strftime(
+                        "%Y-%m-%d %H:%M:%S"
                     )
-
-                with c2:
-
-                    st.metric(
-                        "Precision",
-                        f"{precision * 100:.2f}%"
-                    )
-
-                with c3:
-
-                    st.metric(
-                        "Recall",
-                        f"{recall * 100:.2f}%"
-                    )
-
-                with c4:
-
-                    st.metric(
-                        "F1 Score",
-                        f"{f1 * 100:.2f}%"
-                    )
-
-                st.divider()
-
-                st.subheader(
-                    "🔲 Confusion Matrix"
                 )
 
-                cm = confusion_matrix(
-                    y,
-                    predictions
-                )
+            if row.get(
+                "dropoff_probability"
+            ) is not None:
 
-                cm_df = pd.DataFrame(
-                    cm,
-                    index=[
-                        "Actual 0",
-                        "Actual 1"
-                    ],
-                    columns=[
-                        "Predicted 0",
-                        "Predicted 1"
+                row[
+                    "dropoff_probability"
+                ] = float(
+                    row[
+                        "dropoff_probability"
                     ]
                 )
 
-                st.dataframe(
-                    cm_df,
-                    width="stretch"
+            if row.get(
+                "session_duration"
+            ) is not None:
+
+                row[
+                    "session_duration"
+                ] = float(
+                    row[
+                        "session_duration"
+                    ]
                 )
 
-            except Exception as e:
+        return jsonify({
 
-                st.warning(
-                    f"Could not calculate "
-                    f"performance: {e}"
+            "success": True,
+
+            "count": len(rows),
+
+            "data": rows
+
+        })
+
+    except Error as e:
+
+        print(
+            "❌ MySQL read error:",
+            e
+        )
+
+        try:
+            connection.close()
+        except:
+            pass
+
+        return jsonify({
+
+            "success": False,
+
+            "message": str(e),
+
+            "data": []
+
+        }), 500
+
+
+# =========================================================
+# GET LIVE SUMMARY
+# =========================================================
+
+@app.route("/api/live/summary", methods=["GET"])
+def live_summary():
+
+    connection = get_db_connection()
+
+    if connection is None:
+
+        return jsonify({
+            "success": False,
+            "message": "MySQL unavailable"
+        }), 500
+
+    try:
+
+        cursor = connection.cursor(
+            dictionary=True
+        )
+
+        # -----------------------------------------------
+        # Total events
+        # -----------------------------------------------
+
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS total_events
+            FROM user_events
+            """
+        )
+
+        total_events = cursor.fetchone()[
+            "total_events"
+        ]
+
+        # -----------------------------------------------
+        # Active / unique users
+        # -----------------------------------------------
+
+        cursor.execute(
+            """
+            SELECT COUNT(DISTINCT user_id)
+            AS active_users
+            FROM user_events
+            """
+        )
+
+        active_users = cursor.fetchone()[
+            "active_users"
+        ]
+
+        # -----------------------------------------------
+        # High-risk users
+        # -----------------------------------------------
+
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS high_risk
+            FROM user_events
+            WHERE UPPER(risk) = 'HIGH'
+            """
+        )
+
+        high_risk = cursor.fetchone()[
+            "high_risk"
+        ]
+
+        # -----------------------------------------------
+        # Last event
+        # -----------------------------------------------
+
+        cursor.execute(
+            """
+            SELECT timestamp
+            FROM user_events
+            ORDER BY timestamp DESC
+            LIMIT 1
+            """
+        )
+
+        last_event = cursor.fetchone()
+
+        cursor.close()
+        connection.close()
+
+        last_update = None
+
+        if last_event and last_event.get(
+            "timestamp"
+        ):
+
+            last_update = (
+                last_event[
+                    "timestamp"
+                ].strftime(
+                    "%Y-%m-%d %H:%M:%S"
                 )
-
-        else:
-
-            st.info(
-                "Performance metrics require "
-                "a target column in the dataset."
             )
 
-    # -----------------------------------------------------
-    # FEATURE IMPORTANCE
-    # -----------------------------------------------------
+        return jsonify({
 
-    st.divider()
+            "success": True,
 
-    st.subheader(
-        "🎯 Feature Importance"
+            "live_events": int(
+                total_events
+            ),
+
+            "active_users": int(
+                active_users
+            ),
+
+            "high_risk_users": int(
+                high_risk
+            ),
+
+            "last_update": last_update
+
+        })
+
+    except Error as e:
+
+        return jsonify({
+
+            "success": False,
+
+            "message": str(e)
+
+        }), 500
+
+
+# =========================================================
+# DELETE LIVE DATA
+# =========================================================
+
+@app.route("/api/live/clear", methods=["DELETE"])
+def clear_live_data():
+
+    connection = get_db_connection()
+
+    if connection is None:
+
+        return jsonify({
+            "success": False,
+            "message": "MySQL unavailable"
+        }), 500
+
+    try:
+
+        cursor = connection.cursor()
+
+        cursor.execute(
+            "DELETE FROM user_events"
+        )
+
+        connection.commit()
+
+        deleted = cursor.rowcount
+
+        cursor.close()
+        connection.close()
+
+        return jsonify({
+
+            "success": True,
+
+            "message": "Live data cleared",
+
+            "deleted_rows": deleted
+
+        })
+
+    except Error as e:
+
+        return jsonify({
+
+            "success": False,
+
+            "message": str(e)
+
+        }), 500
+
+
+# =========================================================
+# START APPLICATION
+# =========================================================
+
+if __name__ == "__main__":
+
+    print("\n======================================")
+    print("🚀 FUNNEL ANALYTICS API")
+    print("======================================")
+
+    print(
+        "MySQL Host:",
+        MYSQL_HOST
     )
 
-    importance_values = None
-
-    if model is not None:
-
-        if hasattr(
-            model,
-            "feature_importances_"
-        ):
-
-            importance_values = (
-                model.feature_importances_
-            )
-
-        elif hasattr(
-            model,
-            "named_steps"
-        ):
-
-            for step_name in reversed(
-                list(model.named_steps.keys())
-            ):
-
-                step = model.named_steps[
-                    step_name
-                ]
-
-                if hasattr(
-                    step,
-                    "feature_importances_"
-                ):
-
-                    importance_values = (
-                        step.feature_importances_
-                    )
-
-                    break
-
-    if importance_values is not None:
-
-        importance_df = pd.DataFrame({
-
-            "Feature": features,
-
-            "Importance": importance_values
-
-        }).sort_values(
-            "Importance",
-            ascending=True
-        )
-
-        fig = px.bar(
-            importance_df,
-            x="Importance",
-            y="Feature",
-            orientation="h",
-            title="Factors Influencing Drop-Off Prediction"
-        )
-
-        st.plotly_chart(
-            fig,
-            width="stretch"
-        )
-
-        st.info(
-            "Feature importance shows which user "
-            "behavior variables contribute most "
-            "to the model's prediction."
-        )
-
-    else:
-
-        st.info(
-            "Feature importance is not available "
-            "for the loaded model."
-        )
-
-
-# =========================================================
-# USER DATA
-# =========================================================
-
-elif page == "User Data":
-
-    st.title("👥 User Journey Data")
-
-    st.write(
-        "Historical user journey records."
+    print(
+        "MySQL Database:",
+        MYSQL_DATABASE
     )
 
-    if df.empty:
+    print(
+        "MySQL User:",
+        MYSQL_USER
+    )
 
-        st.warning(
-            "No historical dataset found."
-        )
+    initialize_database()
 
-    else:
+    print(
+        "\n🌐 API running on:"
+    )
 
-        st.write(
-            f"Total records available: "
-            f"**{len(df):,}**"
-        )
+    print(
+        "http://127.0.0.1:5000"
+    )
 
-        st.dataframe(
-            df,
-            width="stretch",
-            hide_index=True
-        )
+    print(
+        "\nEndpoints:"
+    )
 
+    print(
+        "GET  /api/health"
+    )
 
-# =========================================================
-# FOOTER
-# =========================================================
+    print(
+        "POST /api/event"
+    )
 
-st.divider()
+    print(
+        "GET  /api/live"
+    )
 
-st.caption(
-    "Real-Time User Journey Funnel Analysis "
-    "and Drop-Off Prediction System | "
-    "Final Year Engineering Project"
-)
+    print(
+        "GET  /api/live/summary"
+    )
+
+    app.run(host="0.0.0.0", port=5000, debug=True)

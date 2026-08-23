@@ -1,7 +1,8 @@
 Flask
+flask-cors
+mysql-connector-python
 pandas
 numpy
-joblib
 scikit-learn
+joblib
 gunicorn
-mysql-connector-python
